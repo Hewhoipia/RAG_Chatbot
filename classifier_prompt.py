@@ -35,6 +35,10 @@
 # =============================================================================
 # Prompt này được gửi qua role "system" khi gọi vLLM chat.completions API.
 # Tuân thủ chuẩn Qwen3 chat template (im_start/im_end).
+"""
+PROMT CHANGE: chưa biết cải thiện gì
+"""
+
 CLASSIFIER_SYSTEM_PROMPT = """You are a Query Router Classifier for a Banking RAG system.
 Your task: classify each user query into exactly ONE of 4 labels to determine the optimal processing pipeline.
 

@@ -109,13 +109,29 @@ async def multi_query_rewrite(
     prompt = f"""You are a search query optimizer for a banking knowledge base.
 
 Given the original query below, rewrite it in {n} different way(s) that:
-- Preserve the SAME meaning and intent
-- Use different wording, synonyms, or sentence structures
-- Keep the same language as the original query (Vietnamese or English)
+1. Preserve the EXACT intent and use the SAME language as the original query.
+2. Use different wording, synonyms, or sentence structures
+3. IMPORTANT: DO NOT translate, expand, or alter specific banking acronyms, document codes, product names, or technical terms (e.g., eKYC, B-Score, CIC, POS). Keep them exactly as they are.
+4. Strip away conversational fillers (e.g., "cho hỏi", "dạ", "please tell me"). Focus strictly on core banking concepts (e.g., thẩm định, giải ngân, interest rate).
+5. Provide a mix of:
+   - Keyword-dense versions (short, focused on main entities).
+   - Natural phrasing variations (using domain-specific synonyms).
 
 Original query: "{query}"
 
 Return ONLY the rewritten queries, one per line. No numbering, no explanation."""
+
+    """
+    PROMPT CHANGE:
+    - add RULE:
+        3, 4 (xử lí ngôn ngữ, không dịch các thuật ngữ phứt tạp, bỏ các câu xã giao)
+        5 (đưa ra thêm tuỳ chọn để rewrite)
+    
+    Advanced prompt recommendation:
+    1. Output nên trả về JSON hoặc JSON array như:
+    ["variation 1", "variation 2", "variation 3"]
+    2. Nên có thêm Few-shot example (nếu cần)
+    """
 
     try:
         response = await client.chat.completions.create(
@@ -171,16 +187,37 @@ async def query_decomposition(
     from config_v7 import config
     model = model_name or config.vllm.model_name
 
-    prompt = f"""You are a search query analyst for a banking knowledge base.
+    prompt = f"""You are a Query Analyst for a Banking RAG system.
+Your task is to break down a complex query below into smaller, fully self-contained sub-queries to improve vector search retrieval.
 
-Break down this complex query into {n} simpler, self-contained sub-questions.
-Each sub-question should focus on ONE specific aspect that can be searched independently.
-Keep the same language as the original query.
+MANDATORY RULE:
+1. Each sub-query should target only ONE intent, action, entity comparison, or specific aspect that can be searched independently.
+2. Use the SAME language as the original query.
+3. IMPORTANT: DO NOT translate, expand, or alter specific banking acronyms, document codes, product names, or technical terms (e.g., eKYC, B-Score, CIC, POS). Keep them exactly as they are.
+4. Strip away conversational fillers (e.g., "cho hỏi", "dạ", "please tell me"). Focus strictly on core banking concepts (e.g., thẩm định, giải ngân, interest rate).
+5. Every sub-query MUST be fully understandable on its own. Replace all pronouns (e.g., "it", "they", "thẻ đó", "chúng") with the exact entity names from the original query.
+6. Generate ONLY as many sub-queries as necessary based on the logical divisions in the original text. Do not invent extra queries.
 
 Complex query: "{query}"
 
 Return ONLY the sub-questions, one per line. No numbering, no explanation."""
 
+    """
+    PROMPT CHANGE:
+    - Add RULE:
+        1 (sub-query chỉ tập trung vào 1 ý duy nhất)
+        2, 3, 4 (xử lí ngôn ngữ và các câu hỏi xã giao)
+        5 giả sử query "hạn mức của Signature và Platinum, lãi suất của chúng là gì" -> llm dễ tách thành "hạn mức của Signature", "hạn mức của Platinum", "lãi suất của chúng" -> bỏ dô vector search k tìm ra "chúng" là gì
+        6. xác định số lượng sub-query dựa trên query gốc chứ không set cứng n = 2
+        
+    Advanced prompt recommendation:
+    1. Output nên trả về JSON hoặc JSON array như:
+    ["sub 1", "sub 2", "sub 3"]
+    2. Nên có thêm FEW-SHOT EXAMPLES:
+Original: "Cho mình hỏi lãi suất của thẻ Shinhan Platinum và điều kiện mở thẻ đó là gì?"
+Output: ["Lãi suất của thẻ Shinhan Platinum là bao nhiêu?", "Điều kiện mở thẻ Shinhan Platinum là gì?"]
+    """
+    
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -232,14 +269,43 @@ async def step_back_query(
     from config_v7 import config
     model = model_name or config.vllm.model_name
 
-    prompt = f"""Given the specific question below, generate a more general/abstract \
-question that captures the broader topic. The step-back question should help \
-retrieve background context from banking policy documents.
+    prompt = f"""You are an expert Query Optimizer for a Banking RAG system.
+Your task: Given a ORIGINAL QUERY below, generate ONE broader, more abstract question that captures the underlying concept, policy, or business rule.
 
-Specific question: "{query}"
+MANDATORY RULE:
+1. The step-back question MUST focus on retrieving general guidelines, product policies, or banking regulations related to the query.
+2. Use the SAME language as the original query.
+3. IMPORTANT: DO NOT translate, expand, or alter specific banking acronyms, document codes, product names, or technical terms (e.g., eKYC, B-Score, CIC, POS). Keep them exactly as they are.
+4. Strip away conversational fillers (e.g., "cho hỏi", "dạ", "please tell me"). Focus strictly on core banking concepts (e.g., thẩm định, giải ngân, interest rate).
+5. Do NOT make it too broad. Keep the core banking domain/product in the query (e.g., if the user asks about a specific credit card's late fee, ask about credit card late fee policies in general, NOT "what is a fee?").
 
-Step-back question (one line, same language as input):"""
+ORIGINAL QUERY: "{query}"
 
+Step-back question (one line, same language as input, no markdown, no explanation):"""
+
+    """
+    PROMT CHANGE:
+    - add RULE:
+        1 (câu hỏi step-back nên tập trung vào khía cạnh nghiệp vụ của query gốc như guidelines, policies, ...)
+        2, 3, 4 (xác định ngôn ngữ, không dịch một vài thuật ngữ phức tạp, bỏ qua các câu từ xã giao mà tập trung vào ý chính)
+        5 (không step-back quá rộng, chỉ dừng ở mức core banking domain)
+    
+    Advanced prompt recommendation:
+    1. Output nên trả về JSON như:
+{
+  "step_back_query": "<string: the generalized question>"
+}
+    2. Nên thêm vào FEW-SHOT EXAMPLES:
+Original: "Thẻ Shinhan Visa Platinum của mình quẹt lố hạn mức 2 triệu thì phí phạt tính thế nào?"
+{"step_back_query": "Quy định và cách tính phí phạt vượt hạn mức đối với thẻ tín dụng là gì?"}
+
+Original: "Tôi muốn rút hồ sơ vay mua nhà dự án Vinhomes trước hạn thì thủ tục ra sao?"
+{"step_back_query": "Quy trình, điều kiện và thủ tục tất toán trước hạn đối với sản phẩm khoản vay thế chấp bất động sản?"}
+
+Original: "How to reset my Shinhan SOL mobile banking password if I locked it?"
+{"step_back_query": "What is the general procedure to recover or reset an account for the mobile banking application?"}
+    """
+    
     try:
         response = await client.chat.completions.create(
             model=model,

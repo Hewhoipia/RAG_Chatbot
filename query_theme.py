@@ -39,17 +39,56 @@ _CATEGORY_LIST = "\n".join(f"- {c}" for c in CATEGORIES)  # pre-compute trước
 _SYSTEM_PROMPT = f"""\
 You are a banking domain classifier. Given a user query, identify ALL relevant categories from the list below.
 
-Categories:
-{_CATEGORY_LIST}
+CATEGORIES: {_CATEGORY_LIST}
 
-Rules:
-- Return ONLY a valid JSON array of matched category strings, e.g. ["Card", "Loan"]
-- Use the EXACT category names from the list above
-- Return [] if no category matches
-- Do NOT add explanation or extra text"""
+MANDATORY RULE:
+1. A query can belong to 1, multiple, or 0 categories.
+2. If the query spans multiple domains (e.g., "Paying a loan via credit card"), include ALL relevant categories.
+3. The query may be in multiple languages. Apply the same classification logic.
+4. Return ONLY a valid JSON array of matched category strings, e.g. ["Card", "Loan"]
+5. Use the EXACT category names from the CATEGORIES list above
+6. Return [] if no category matches
+7. Do NOT add explanation or extra text
+
+Output STRICTLY a JSON array with this schema (no markdown formatting, no explanation outside the JSON):
+[<array of strings: exact category names or empty>]
+"""
 
 _USER_TEMPLATE = 'Query: "{query}"\n\nMatched categories (JSON array only):'
 
+'''
+PROMPT CHANGE:
+- thêm RULE:
+    1, 2 (giúp llm phân loại multiple domains trong 1 query tốt hơn)
+    3 (một query có thể nhiều ngôn ngữ, áp dụng cách phân loại như nhau)
+- thêm format cho output
+
+Advanced Prompt Recommendation:
+1. Đề xuất output có thêm phần reasoning, sau đó test xem độ chính xác có được cải thiện không, format JSON như sau:
+{
+  "reasoning": "<string: brief 1-2 sentence analysis>",
+  "categories": [<array of strings: exact category names or empty>]
+}
+Lưu ý: cần viết lại back-end chỉ lấy phần JSON array của "categories"
+
+2. Nên bổ sung thêm FEW-SHOT EXAMPLES:
+[
+    {
+        "user" : "Lãi suất thẻ tín dụng và thủ tục vay thế chấp?",
+        "classifier": "{"reasoning": "Query asks about credit card interest (Card) and mortgage procedures (Loan).", "categories": ["Card", "Loan"]}"
+    },
+
+    {
+        "user": "SOL App từ chối cho người dùng đăng ký Internet Banking.",
+        "classifier": "{"reasoning": "Query is about a technical issue logging into the mobile application.", "categories": ["Digital Banking", "IT"]}"
+    },
+
+    {
+        "user": "Tổng thống Hàn Quốc là ai?",
+        "classifier": "{"reasoning": "Query is out of domain and unrelated to any banking categories.", "categories": []}"
+    },
+]
+'''
 
 # ---------------------------------------------------------------------------
 # Main function
