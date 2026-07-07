@@ -1,0 +1,1970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type ="image/png" href="/static/images/favicon2023.ico"/>
+
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" as="style"
+        onload="
+            this.onload=null;
+            this.rel='stylesheet';
+            "/>
+    <noscript>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+    </noscript>
+
+    <script src = "/static/libs/katex/katex.min.js"></script>
+    <link rel = "stylesheet" href = "/static/libs/katex/katex.min.css"/>
+    <script src="/static/libs/katex/katex.min.js"></script>
+    <script src="/static/libs/katex/contrib/auto-render.min.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #00469b;
+            --gradient-start: #007bff;
+            --gradient-end: #ff6a00;
+            --text-color: #333;
+            --bg-color: #f4f4f4;
+            --container-bg: #ffffff;
+            --border-color: #cccccc;
+        }
+
+        body {
+            font-family: "Inter", sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: var(--bg-color);
+        }
+
+        /* Main container for the chat interface */
+        .main-container {
+            width: 100%;
+            max-width: 900px;
+            height: 95vh;
+            background-color: transparent;
+            border-radius: 0;
+            box-shadow: none;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s ease-in-out;
+            position: relative;
+        }
+
+        .app-header{
+            padding: 15px 25px;
+            border-bottom: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .header-left{
+            display: flex;
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .header-brand-row{
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .data-status-line svg{
+            width: 16px;
+            height: 16px;
+            stroke: #b9598a;
+        }
+        .logo svg{
+            width: 150px;
+            height: auto;
+        }
+        .model-status{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        .model-status.before{
+            content:"";
+            width: 8px;
+            height: 8px;
+            background-color: #28a745;
+            border-radius: 50%;
+        }
+        .user-avatar{
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        /* Chat interface styles */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+        .welcome-screen {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            width: 100%;
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .main-container.chat-started .welcome-screen {
+            opacity: 0;
+            visibility: hidden;
+        }
+        .welcome-message {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+
+        /* Chat box styles */
+        .chat-box {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            position: relative;
+        }
+        .main-container.chat-started .chat-box {
+            opacity: 1;
+        }
+        .chat-fade-overlay{
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 50px;
+            background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--bg-color));
+            pointer-events: none;
+            z-index: 0;
+        }
+        .chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-box::-webkit-scrollbar-thumb {
+            background-color: var(--border-color);
+            border-radius: 10px;
+            border: 2px solid var(--bg-color);
+        }
+        .chat-box::-webkit-scrollbar-thumb:hover {
+            background-color: var(--primary-color);
+        }
+
+        /* Chat input styles */
+        .input-area-wrapper{
+            width: 50%;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 20px 25px;
+            flex-shrink: 0;
+            transition: all 0.3s ease-in-out;
+            position: relative;
+        }
+        .main-container:not(.chat-started) .input-area-wrapper{
+            position: absolute;
+            bottom: 40%;
+            left: 50%;
+            transform: translate(-50%, 100%);
+            width: 50%;
+        }
+        .chat-input {
+            /* THÊM position: relative để làm gốc tọa độ cho dropdown */
+            position: relative; 
+            display: flex;
+            align-items: center;
+            background-color: var(--container-bg);
+            border-radius: 25px;
+            padding: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            
+            /* Thêm transition để hiệu ứng đổi bo góc mượt mà */
+            transition: border-radius 0.2s ease;
+            z-index: 1001; 
+        }
+        /* Sẽ được JS tự động thêm vào khi dropdown mở */
+        .chat-input.dropdown-open {
+            border-bottom-left-radius: 0px;
+            border-bottom-right-radius: 0px;
+            box-shadow: 0 0px 0px rgba(0, 0, 0, 0); /* Bỏ bóng để nhường cho dropdown */
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 10px 15px;
+            border: none;
+            outline: none;
+            background:transparent;
+            font-size: 16px;
+        }
+        .chat-input button {
+            background: linear-gradient(
+                90deg,
+                #0046ff 0%,
+                #5b4dd6 12.5%,
+                #9353ad 25%,
+                #c35a84 37.5%,
+                #f1615b 50%,
+                #f1615b 62.5%,
+                #f1615b 75%,
+                #f1615b 87.5%,
+                #f1615b 100%
+            );
+            background-size: 200% 100%;
+            background-position: 0% 0%;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            padding: 10px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 
+                all 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.3s ease;
+        }
+        .chat-input button:hover {
+            background-position: 100% 0%;
+            transform: scale(1.05);
+        }
+        .chat-input button svg{
+            width: 20px;
+            height: 20px;
+            transition: transform 0.3s ease;
+        }
+        .app-footer {
+            text-align: center;
+            font-size: 12px;
+            color: #646891;
+            padding-bottom: 15px;
+            flex-shrink: 0;
+        }
+        
+        .loading{
+            margin: 10px auto;
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top: 4px solid var(--primary-color);
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .progress-bar-container{
+            width: 250px;
+            height: 6px;
+            background: #fffffffa;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px auto;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            width: 40%;
+            background: linear-gradient(90deg,
+            transparent 0%,
+            #0045ff 15%,
+            #003375 50%,
+            #c6613f 85%,
+            transparent 100%);
+            border-radius: 10px;
+            animation: progress-fill 2s infinite ease-in-out;
+            box-shadow: 0 0 10px rgb(255, 255, 255);
+            position: relative;
+        }
+        @keyframes progress-fill {
+            0% {
+                left: 0%;
+                transform: translateX(0);
+            }
+            50% {
+                left: 100%;
+                transform: translateX(-100%);
+            }
+            100% {
+                left: 0%;
+                transform: translateX(0);
+            }
+        }
+        .loading-overlay {
+            position: absolute;
+            bottom: 80px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+            z-index: 3;
+        }
+        .message {
+            max-width: 75%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            line-height: 1.5;
+            white-space: pre-swap;
+            margin-bottom: 8px;
+        }
+        .message.user {
+            background-color: #e1f5fe;
+            align-self: flex-end;
+            color: var(--text-color);
+            border-bottom-right-radius: 4px;
+        }
+        .message.bot {
+            background-color: #f1f1f1;
+            align-self: flex-start;
+            color: var(--text-color);
+            border: 1px solid #f0f0f0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            border-bottom-left-radius: 4px;
+            position: relative;
+            padding-left: 24px;
+            overflow: visible;
+            
+        }
+        .message.bot::before{
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            background: linear-gradient(180deg,
+            var(--gradient-start),
+            var(--gradient-end)
+            );
+            border-top-left-radius: 18px;
+            border-bottom-left-radius: 4px;
+        }
+        .bot-response-block{
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            margin-bottom: 15px;
+            margin-top: 5px;
+        }
+        .thought-time-note{
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+            padding-left: 5px;
+        }
+
+
+        /* Thinking content */
+        .thinking-container {
+            margin-bottom: 4px;
+            margin-left: 5px;
+        }
+        .thinking-header {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+            padding: 4px 0;
+        }
+        .thinking-icon{
+            font-size: 14px;
+        }
+        .thinking-title{
+            font-size: 13px;
+            font-weight: 400;
+            color: #888;
+        }
+        .thinking-toggle{
+            font-size: 11px;
+            color: #c6613f;
+            transition: transform 0.2s ease;
+            margin-left: 2px;
+        }
+        .thinking-container.collapsed .thinking-toggle{
+            transform: rotate(-90deg);
+        }
+        .thinking-content{
+            margin-top: 8px;
+            margin-left: 20px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #888;
+            max-height: 500px;
+            overflow-y: auto;
+            transition: 
+                max-height 0.3s ease,
+                opacity 0.3s ease,
+                margin 0.3s ease;
+        }
+        .thinking-content ul{
+            margin: 0;
+            padding-left: 20px;
+        }
+        .thinking-content li {
+            margin-bottom: 12px;
+        }
+        .thinking-container.collapsed .thinking-content{
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0;
+            overflow: hidden;
+        }
+        .thinking-content::-webkit-scrollbar{
+            width: 4px;
+        }
+        .thinking-content::-webkit-scrollbar-thumb{
+            background: #ddd;
+            border-radius: 2px;
+        }
+
+        /* Streaming cursor effect */
+        .streaming-cursor{
+            display: inline-block;
+            width: 2px;
+            height: 14px;
+            background: #666;
+            margin-left: 2px;
+            animation: cursor-blink 0.8s infinite;
+            vertical-align: text-bottom;
+        }
+        @keyframes cursor-blink{
+            0%,
+            50% {
+                opacity: 1;
+            }
+            51%,
+            100%{
+                opacity: 0;
+            }
+        }
+
+        /* FEEDBACK */
+
+        .feedback-reminder{
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ff6b6b;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(155, 107, 107, 0.3);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            z-index: 1000;
+        }
+        .feedback-reminder.show{
+            opacity: 1;
+            visibility: visible;
+        }
+        .feedback-reminder::after{
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 8px solid transparent;
+            border-top-color: #ff6b6b;
+        }
+
+
+
+        
+        .source-buttons {
+            align-self: flex-start;
+            margin-top: 5px;
+            margin-left: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .source-button{
+            padding: 5px 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .source-button:hover {
+            background-color: #0056b3;
+            color: #fff;
+            border: 1px solid #fff;
+        }
+
+
+        .feedback-buttons {
+            margin-top: 10px;
+        }
+        .feedback-buttons button {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .feedback-buttons .right {
+            background-color: #4caf50;
+            color: white;
+            margin-right: 5px;
+        }
+        .feedback-buttons .wrong {
+            background-color: #f44336;
+            color: white;
+        }
+        .feedback-form {
+            display: block;
+            margin-top: 10px;
+        }
+        .feedback-form input{
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        .feedback-form button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .copy-button {
+            background: none;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 10px;
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            opacity: 50;
+            transition: opacity 0.3s, color 0.3s;
+        }
+        .message.bot:hover .copy-button {
+            opacity: 1;
+        }
+        .copy-button:hover {
+            color: #007bff;
+        }
+
+        /* REAL-TIME AUTO SUGGEST */
+        /* Khung dropdown chứa các gợi ý */
+        .autocomplete-dropdown {
+            position: absolute;
+            top: 100%; /* Quan trọng: Đẩy menu xuống dưới ô input */
+            left: 0;
+            width: 100%;
+            box-sizing: border-box; /* Đảm bảo chiều rộng chuẩn xác không bị tràn viền */
+            
+            background-color: var(--container-bg); /* Cùng màu với ô chat */
+            
+            /* Bo góc bên dưới cho khớp với thiết kế bo tròn */
+            border-bottom-left-radius: 15px;
+            border-bottom-right-radius: 15px;
+            
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            max-height: 200px;
+            overflow-y: auto;
+            display: none; 
+            z-index: 1000;
+        }
+
+        /* Định dạng lại item cho đẹp */
+        .autocomplete-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f1f1;
+            font-size: 14px;
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        .autocomplete-item:hover {
+            background-color: #f8f9fa;
+        }
+        
+        /* Highlight đoạn text khớp với từ khóa */
+        .highlight {
+            color: #c4c4c4;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container" id ="main-container">
+        <div class="app-header">
+            <div class="header-left">
+                <div class="header-brand-row">
+                    <div class="logo">
+                        <img src="/static/images/logo-01.svg" alt="Shinhan Bank Logo" style="width: 150px; height: auto;"/>
+                    </div>
+                    <div class="model-status">Cyberbugs</div>
+                </div>
+                <div class="data-status-line">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;">
+                        <ellipse cx="12" cy="5" rx="9" ry="3" fill="#b9598a" fill-opacity="0.15"></ellipse>
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" fill="#b9598a" fill-opacity="0.05"></path>
+                        <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path>
+                    </svg>
+                    <span>Internal docs - Updated Mon 09/09/9999</span>
+                </div>
+            </div>
+            <div id="user-avatar" class="user-avatar"></div>
+        </div>
+        <div class="main-content">
+            <div class="welcome-screen">
+                <h1 id="welcome-text" class="welcome-message"></h1>
+            </div>
+            <div id="chat-box" class="chat-box"></div>
+            <div c class="chat-fade-overlay"></div>
+        </div>
+        <div id="loading-overlay"></div>
+        <div class="input-area-wrapper">
+            <div class="feedback-reminder" id="feedback-reminder">
+                Please submit feedback before asking a new quesion
+            </div>
+            <div class="chat-input" id="chat-input-wrapper">
+                <div id="autocomplete-list" class="autocomplete-dropdown"></div>
+                <input type="text" id="user-input" placeholder="Ask me anything" autocomplete="off" onkeypress="return enterKeyPress(event);"/>
+                <button id="send-btn" onclick="handleSendButtonClick()">
+                    <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
+                        <path/>
+                    </svg>
+                    <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" style="display: none;">
+                        <rect x="6" y="6" width="12" height="12" rx="2"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        <div class="app-footer">
+            This bot can make mistakes!
+            <br/>
+            Please contact ...
+        </div>
+    </div>
+
+    <script>
+        const ENABLE_FEEDBACK_REQUIREMENT = false; // false to turn off compelling feedback
+        let currentQuestion = "";
+        let currentAnswer = "";
+        let currentId = "";
+        let loadingSpinner;
+        let isProcessing = false;
+        let abortController = null;
+        let feedbackRequired = false; // need feeback before ask new ques?
+        let pendingFeedbackButton = null;
+
+        // DEMO MODE: when directly open file instead of server
+        //const isDemoMode = window.location.protocol === 'file:';
+        const isDemoMode = true; // always demo
+        const DEMO_RESPONSES = [
+            {
+                response: "Đây là câu trả lời mẫu! \n\nBạn đang test giao diện offline.",
+                sources:[
+                    {filename: "demo_doc.pdf", relative_path:"demo/demo_doc.pdf", page_no:1},
+                    {filename: "sample_policy.docx", relative_path:"demo/sample_policy.docx", text: "sample highlighted text"}
+                ],
+                thought_time: 1.5,
+                conversation_id: "demo-" + Date.now()
+            },
+            {
+                response: "Câu trả lời Demo thứ 2! \n\nGiao diện Stop/continue đang hoạt động\nNút copy, like, dislike, regenerate đã sẵn sàng\nSource buttons đang hiển thị đúng!",
+                sources: [{filename: "another_doc.pdf", relative_path:"demo/another_doc.pdf", page_no:5}],
+                thought_time: 2.1,
+                conversation_id: "demo-" + Date.now()
+            },
+        ];
+        let demoResponseIndex = 0;
+
+        // config marked.js for Github Falvored Markdown
+        (function initMarked() {
+            if (typeof marked !== 'undefined'){
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    headerIds: false,
+                    mangle: false,
+                });
+            }
+        })();
+
+        // Render Markdown text to HTML
+        function renderMarkdown(rawText){
+            if (!rawText) return '';
+            const cleaned = rawText
+                .replace(/<think>[\s\S]*?<\/think>/gi,'')
+                .replace(/^\s+/, '');
+            if (typeof marked === 'undefined') {
+                return cleaned.replace(/\n/g, '<br>');
+            }
+            return marked.parse(cleaned);
+        }
+
+        function addStreamingCursor(html){
+            const cursorSpan = '<span class="streaming-cursor"></span>';
+            const lastCloseTagIdx = html.lastIndexOf('</');
+            if(lastCloseTagIdx > -1){
+                return html.slice(0, lastCloseTagIdx) + cursorSpan + html.slice(lastCloseTagIdx);
+            }
+            return html + cursorSpan;
+        }
+
+        function applyKaTeX(element){
+            if (typeof renderMathInElement === 'function'){
+                try {
+                    renderMathInElement(element, {
+                        delimiters: [
+                            {left: '$$', right: '$$', display: true},
+                            {left: '$', right: '$', display: false},
+                            {left: '\\(', right: '\\)', display: false},
+                            {left: '\\[', right: '\\]', display: true},
+                        ],
+                        throwOnError: false,
+                        errorColor: '#cc0000'
+                    });
+                } catch (e){
+                    console.warn('KaTeX rendering error:', e);
+                }
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            let userName = "";
+            if (isDemoMode) {
+                userName = "Johnny Silverhand";
+            } else {
+                userName = "{{user_name}}";
+                if (!userName || userName.trim() === "" || userName === "{{user_name}}"){
+                    userName = "Johnny Silverhand";
+                }
+            }
+            setupInitialUI(userName);
+            if (isDemoMode){
+                showDemoModeBanner();
+            }
+        });
+
+        function showDemoModeBanner(){
+            const banner = document.createElement('div');
+            banner.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                background: linear-gradient(90deg, #ff6b6b, #ffa502);
+                color: white;
+                text-align: center;
+                padding: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                z-index: 9999;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            `;
+            banner.innerHTML = 'Demo Mode: đang test giao diện offline.';
+            document.body.prepend(banner);
+            document.body.style.paddingTop = '40px';
+        }
+
+        function setupInitialUI(userName){
+            // 1. Run avatar generation
+            generateAvatar(userName);
+            
+            // 2. Safely update welcome text (won't crash if missing)
+            const welcomeText = document.getElementById('welcome-text');
+            if (welcomeText) {
+                welcomeText.innerHTML= `Hi ${userName}!<br>Let's explore the world :)`;
+            }
+
+            // 3. Safely set up input loop (won't crash if missing)
+            const inputField = document.getElementById('user-input');
+            const placeholders = ["Ask me anything!", "Say hi to the world!"];
+            let placeholderIndex = 0; 
+            
+            if (inputField) {
+                setInterval(() => {
+                    if (!isProcessing && !feedbackRequired){
+                        placeholderIndex = (placeholderIndex + 1) % placeholders.length;
+                        inputField.placeholder = placeholders[placeholderIndex];
+                    }
+                }, 5000);
+            }
+        }
+
+        function generateAvatar(userName){
+            const avatar = document.getElementById('user-avatar');
+            if (!avatar) return; // Safety check in case the element is missing
+
+            if (!userName){
+                avatar.textContent = 'J';
+                avatar.style.background = 'linear-gradient(45deg, #ccc, #999)';
+                return;
+            }
+            const initial = userName.charAt(0).toUpperCase();
+            avatar.textContent = initial;
+            const randomColor1 = `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`;
+            const randomColor2 = `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`;
+            avatar.style.background = `linear-gradient(45deg, ${randomColor1}, ${randomColor2})`;
+        }
+
+        function handleSendButtonClick(){
+            if (isProcessing){
+                cancelMessage();
+            } else {
+                sendMessage();
+            }
+        }
+
+        function setProcessingState(processing){
+            isProcessing = processing;
+            const sendBtn = document.getElementById('send-btn');
+            const sendIcon = document.getElementById('send-icon');
+            const stopIcon = document.getElementById('stop-icon');
+            const chatInput = document.querySelector('.chat-input');
+            const inputField = document.getElementById('user-input');
+
+            if (processing){
+                sendBtn.classList.add('is-loading');
+                sendIcon.style.display = 'none';
+                stopIcon.style.display = 'block';
+                chatInput.classList.add ('is-processing');
+                inputField.placeholder = 'Processing...';
+            } else {
+                sendBtn.classList.remove('is-loading');
+                sendIcon.style.display = 'block';
+                stopIcon.style.display = 'none';
+                chatInput.classList.remove('is-processing');
+                if(feedbackRequired){
+                    inputField.placeholder = 'Please submit feedback before continuing...';
+                } else {
+                    inputField.placeholder = 'Ask me anything!';
+                }
+            }
+        }
+
+        function cancelMessage(){
+            if (abortController){
+                abortController.abort();
+                abortController = null;
+            }
+            hideLoadingSpinner();
+            setProcessingState(false);
+            const chatBox = document.getElementById('chat-box');
+            const cancelDiv = document.createElement("div");
+            cancelDiv.className = 'thought-time-note';
+            cancelDiv.textContent = "Request cancelled by user";
+            cancelDiv.style.color = "#dc3545";
+            chatBox.appendChild(cancelDiv);
+            scrollToBottom();
+        }
+
+        function sendMessage(suggestedText = null) {
+            const userInput = suggestedText || document.getElementById('user-input').value.trim();
+            if (userInput === '') return;
+            
+            if (feedbackRequired){
+                showFeedbackReminder();
+                return;
+            }
+
+            if(isProcessing) return;
+
+            const chatContainer = document.getElementById('main-container');
+            if (!chatContainer.classList.contains('chat-started')) {
+                chatContainer.classList.add('chat-started');
+            }
+
+            appendMessage(userInput, 'user');
+            currentQuestion = userInput;
+            document.getElementById('user-input').value = '';
+            scrollToBottom();
+            showLoadingSpinner();
+
+            abortController = new AbortController();
+            setProcessingState(true);
+
+            if(isDemoMode){
+                simulateDemoStreaming(userInput);
+                return;
+            }
+            sendMessageStreaming(userInput);
+        }
+
+        async function sendMessageStreaming(userInput) {
+            const chatBox = document.getElementById('chat-box');
+            const responseBlock = document.createElement('div');
+            responseBlock.className = 'bot-response-block';
+
+            const thinkingContainer = createThinkingContainer();
+            thinkingContainer.style.display = 'block';
+            responseBlock.appendChild(thinkingContainer);
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            messageDiv.style.display = 'none';
+            responseBlock.appendChild(messageDiv);
+
+            chatBox.appendChild(responseBlock);
+            hideLoadingSpinner();
+            scrollToBottom();
+
+            let thinkingContent = '';
+            let answerContent = '';
+            let hasThinking = false;
+            let streamQueryType = null;
+            const responseStartTime = Date.now();
+
+            let responseTimerId = setInterval(() => {
+                const elapsed = ((Date.now() - responseStartTime) / 1000).toFixed(1);
+                thinkingContainer.querySelector('.thinking-duration').textContent = `${elapsed}s`;
+            }, 100);
+
+            try {
+                const response = await fetch ('/chat/stream/thinking' , {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({prompt:userInput}),
+                    signal: abortController.signal,
+                });
+
+                if (!response.ok){
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true){
+                    const {done, value} = await reader.read();
+                    if (done) break;
+
+                    biffer += decoder.decode(value, {stream: true});
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines){
+                        if (!line.startsWith('data: ')) continue;
+
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if(data.type ==='thinking'){
+                                if (!hasThinking){
+                                    hasThinking = true;
+                                }
+                                thinkingContent += data.content;
+                                const thinkingContentDiv = thinkingContainer.querySelector('.thinking-content');
+                                thingkingContentDiv.innerHTML = thinkingContent.replace(/\n/g, '<br>') + '<span class = "streaming-cursor"></span>';
+                                thinkingContentDiv.scrollTop = thinkingContentDiv.scrollHeight;
+                            }
+                            else if (data.type === 'answer'){
+                                if (messageDiv.style.display === 'none'){
+                                    messageDiv.style.display = '';
+                                    if (hasThinking){
+                                        thinkingContainer.classList.add('collapsed');
+                                    }
+                                }
+                                answerContent +=data.content;
+                                const streamHtml = renderMarkdown(answerContent);
+                                messageDiv.innerHTML = addStreamingCursor(streamHtml);
+                            }
+                            else if (data.type === 'sources'){
+                                if (data.sources && data.sources.length > 0){
+                                    appendSourceButtons(data.sources, responseBlock);
+                                }
+                            }
+                            else if (data.type === 'suggestion'){
+                                // do something
+                            }
+                            else if (data.type === 'done'){
+                                clearInterval(responseTimerId);
+                                const totalTime = data.thinking_time || ((Date.now() - responseStartTime) / 1000).toFixed(0);
+                                finalizeThinkingAlways(thinkingContainer, totalTime, hasThinking);
+                                messageDiv.innerHTML = renderMarkdown(answerContent);
+                                applyKaTex(messageDiv);
+                                currentId = data.conversation_id || '';
+                                streamQueryType = data.query_type || null;
+                            }
+                            else if (data.token){
+                                // old format, dont care
+                            }
+                            scrollToBottom();
+                        } catch(e){
+                            // skip
+                        }
+                    }
+                }
+
+                clearInterval(responseTimerId);
+                messageDiv.innerHTML = renderMarkdown(answerContent);
+                applyKaTex(messageDiv);
+                if (!thinkingContainer.classList.contains('done')){
+                    const totalTime = ((Date.now() - responseStartTime) / 1000).toFixed(0);
+                    finalizeThinkingAlways(thinkingContainer, totalTime, hasThinking);
+                }
+                const finalHtml = messageDiv.innerHTML;
+                const finalPlainText = answerContent.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^\s+/, '');
+                appendActionButtons(finalHtml, finalPlainText, responseBlock, streamQueryType);
+            } catch (error){
+                clearInterval(responseTimerId);
+                if (error.name !== 'AbortError'){
+                    console.error('Streaming error: ', error);
+                    messageDiv.style.display = '';
+                    messageDiv.innerHTML = 'An error occurred. Please try again.';
+                    messageDiv.style.color = '#dc3545';
+                    const totalTime = ((Date.now() - responseStartTime) / 1000).toFixed(0);
+                    finalizeThinkingAlways(thinkingContainer, totalTime, hasThinking);
+                }
+            } finally {
+                setProcessingState(false);
+                scrollToBottom();
+            }
+        }
+
+        function createThinkingContainer(){
+            const container = document.createElement('div');
+            container.className = 'thinking-container';
+            container.style.display = 'none';
+            container.innerHTML= `
+                <div class = "thinking-header" onclick="toggleThinking(this.parentElement)">
+                    <span class = "thinking-icon"></span>
+                    <span class = "thinking-title">Thinking</span>
+                    <span class="thinking-duration"></span>
+                    <span class = "thinking-toggle">V</span>
+                </div>
+                <div class="thinking-content"></div>
+                `;
+            return container;
+        }
+
+        function toggleThinking(container){
+            container.classList.toggle('collapsed');
+        }
+
+        function finalizeThinkingAlways(container, totalSeconds, hasThinkingContent){
+            container.classList.add('done');
+            container.querySelector('.thinking-title').textContent = `Thought for ${totalSeconds} seconds`;
+            container.querySelector('.thinking-duration').textContent = '';
+
+            if (hasThinkingContent){
+                container.classList.add('collapsed');
+            } else {
+                const toggleEl = container.querySelector('.thinking-toggle');
+                if (toggleEl) toggleEl.style.display = 'none';
+                const contentEl = container.querySelector('.thinking-content');
+                if (contentEl) contentEl.style.display = 'none';
+                const headerEl = container.querySelector('.thinking-header');
+                if (headerEl){
+                    headerEl.style.cursor = 'default';
+                    headerEl.onclick = null;
+                }
+            }
+
+            const cursor = container.querySelector('.thinking-content .streaming-cursor');
+            if (cursor) cursor.remove();
+        }
+
+        function showLoadingSpinner() {
+            const overlay = document.getElementById("loading-overlay");
+            overlay.innerHTML = "";
+            const spinner = document.createElement("div");
+            spinner.className = "progress-bar-container";
+            spinner.style.opacity = "0";
+            const fill = document.createElement("div");
+            fill.className = "progress-bar-fill";
+            spinner.appendChild(fill);
+            overlay.appendChild(spinner);
+            requestAnimationFrame(() => {
+                spinner.style.transition = "opacity 0.5s ease";
+                spinner.style.opacity = "1";
+            });
+            loadingSpinner = spinner;
+            return spinner;
+        }
+
+        function hideLoadingSpinner() {
+            if (!loadingSpinner) return;
+            const spinner = loadingSpinner;
+            spinner.style.transition = "opacity 0.4s ease";
+            spinner.style.opacity = "0";
+            setTimeout(() =>{
+                if (spinner && spinner.parentNode){
+                    spinner.parentNode.removeChild(spinner);
+                }
+                loadingSpinner = null;
+            }, 400);
+        }
+
+        function appendMessage(text, type, isHTML = false) {
+            const chatBox = document.getElementById('chat-box');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = text;
+            chatBox.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        /* gói toàn bộ phản hồi của bot vào một div duy nhất */
+        function appendBotResponse(data){
+            const chatBox = document.getElementById('chat-box');
+            console.log('Received data:', data);
+            console.log('Sources:', data.sources);
+
+            const responseBlock = document.createElement('div');
+            responseBlock.className = 'bot-response-block';
+            if(data.thought_time != undefined && data.thought_time > 0){
+                const thoughtTimeDiv = document.createElement("div");
+                thoughtTimeDiv.className = 'thought-time-note';
+                thoughtTimeDiv.textContent = `Thought for ${data.thought_time} seconds`;
+                responseBlock.appendChild(thoughtTimeDiv);
+            }
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message bot`;
+            messageDiv.innerHTML = renderMarkdown(data.response);
+            applyKaTex(messageDiv);
+            responseBlock.appendChild(messageDiv);
+            if (data.sources && data.sources.length > 0){
+                console.log('Adding source buttons for sources:', data.sources);
+            } else {
+                console.log('No sources to display or sources is empty');
+            }
+            appendActionButtons(messageDiv.innerHTML, data.response, responseBlock, data.query_type || null);
+            chatBox.appendChild(responseBlock);
+            currentId = data.conversation_id;
+            scrollToBottom();
+        }
+
+        function appendSourceButtons (sources, parentElement){
+            console.log('appendSourceButtons called with:', sources, parentElement);
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'source-buttons';
+            sources.forEach((source, index) => {
+                console.log(`Creating button for source ${index}:`, source);
+                const filename = source.filename || '';
+                const fileExt = filename.split('.').pop().toLowerCase();
+
+                if (fileExt === 'docx' || fileExt === 'doc'){
+                    const button = document.createElement('a');
+                    button.className = 'source-button';
+                    button.href = '#';
+                    button.textContent = `${filename} (Highlighted)`;
+                    button.onclick = (e) => {
+                        e.preventDefault();
+                        if(!source.text || !source.text.trim()){
+                            window.open(`/files/${source.relative_path}`, '_blank');
+                            return;
+                        }
+                        const encodedText = encodeURIComponent(source.text);
+                        const highlightUrl = `/files/highlighted/${source.relative_path}?text=${encodedText}`;
+                        window.open(highlightUrl, '_blank');
+                    };
+                    sourcesDiv.appendChild(button);
+                } else{
+                    const button = document.createElement('a');
+                    button.className = 'source-button';
+                    if(source.page_no){
+                        button.href = `/view_pdf/${source.relative_path}?page=${source.page_no}`;
+                        button.textContent = `${filename} (page ${source.page_no})`;
+                    } else {
+                        button.href = `/view_pdf/${source.relative_path}`;
+                        button.textContent = `${filename}`;
+                    }
+                    button.target = '_blank';
+                    sourcesDiv.appendChild(button);
+                }
+            });
+            console.log('Source buttons div created:', sourcesDiv);
+            parentElement.appendChild(sourcesDiv);
+            console.log('Source buttons added to parent element');
+        }
+
+        const clipboardIconSVG = ``;
+        const checkIconSVG = ``;
+        const regenerateIconSVG = ``;
+        const agreeIconSVG = ``;
+        const disagreeIconSVG = ``;
+
+        /* thêm copy, agree, disagree, regen */
+        function appendActionButtons(botMessageHtml, botMessageText, responseBlock, queryType = null){
+            const container = document.createElement('div');
+            container.className = 'action-buttons-container';
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'action-button';
+            copyBtn.setAttribute('data-tooltip', 'Copy answer');
+            copyBtn.innerHTML = clipboardIconSVG;
+            copyBtn.onclick = () => copyRichTextToClipboard(botMessageHtml, botMessageText, copyBtn);
+
+            const agreeBtn = document.createElement('button');
+            agreeBtn.className = 'action-button agree-btn pulse-magnetic-green';
+            agreeBtn.innerHTML = agreeIconSVG;
+            agreeBtn.dataset.feedbackState = 'idle';
+
+            const disagreeBtn = document.createElement('button');
+            disagreeBtn.className = 'action-button disagree-btn pulse-magnetic';
+            disagreeBtn.setAttribute('data-tooltip', 'Disagree');
+            disagreeBtn.dataset.feedbackState = 'closed';
+            disagreeBtn.onclick = () => toggleFeedbackForm(container, disagreeBtn, agreeBtn);
+
+            agreeBtn.onclick = () => submitAgree(agreeBtn, disagreeBtn, container);
+
+            const regenerateBtn = document.createElement('button');
+            regenerateBtn.className = 'action-button';
+            regenerateBtn.setAttribute('data-tooltip', 'Regenerate');
+            regenerateBtn.innerHTML = regenerateIconSVG;
+            regenerateBtn.onclick = () => regenerateResponse(responseBlock);
+            container.appendChild(copyBtn);
+            container.appendChild(agreeBtn);
+            container.appendChild(disagreeBtn);
+            container.appendChild(regenerateBtn);
+            responseBlock.appendChild(container);
+
+            if (ENABLE_FEEDBACK_REQUIREMENT){
+                if (queryType === 'chit-chat' || queryType === 'clarify'){
+                    feedbackRequired = false;
+                    pendingFeedbackButton = null;
+                } else {
+                    feedbackRequired = true;
+                    pendingFeedbackButton = disagreeBtn;
+                    const userInput = document.getElementById("user-input");
+                    userInput.disabled = true;
+                    userInput.placeholder = "Please submit feedback before continuing ...";
+                }
+            }
+        }
+
+        function submitAgree(agreeBtn, disagreeBtn, containerElement){
+            if (agreeBtn.dataset.feedbackState === 'submitted') return;
+            const feedbackData = {
+                conversation_id: currentId,
+                answer_satisfaction: 1,
+                issues: [],
+                other_opinions: null,
+            };
+            fetch ("/detailed_feedback", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(feedbackData),
+            })
+            .then((response) => {
+                if (response.ok){
+                    agreeBtn.dataset.feedbackState = 'submitted';
+                    const existingForm = containerElement.parentElement.querySelector('.feedback-form-container');
+                    if (existingForm){
+                        existingForm.classList.remove('visible');
+                        existingForm.classList.add('hidden');
+                        setTimeout(() => existingForm.remove(), 300);
+                    }
+                    showSubmittedIcon(agreeBtn, disagreeBtn, containerElement, true, null);
+                    if (ENABLE_FEEDBACK_REQUIREMENT){
+                        feedbackRequired = false;
+                        pendingFeedbackButton = null;
+                        const userInput = document.getElementById("user-input");
+                        userInput.disabled = false;
+                        userInput.placeholder = "Ask me anything!";
+                        const chatInputWrapper = document.getElementById('chat-input-wrapper');
+                        if (chatInputWrapper) chatInputWrapper.classList.remove('feedback-required');
+                    }
+                } else {
+                    alert ("Failed to submit feedback.")
+                }
+            })
+            .catch((error) =>{
+                console.error("Agree feedback error:", error);
+                alert("An error occurred while submitting feedback.");
+            });
+        }
+
+        function showSubmittedIcon(agreeBtn, disagreeBtn, containerElement, isAgree, formContainer){
+            [agreeBtn, disagreeBtn].forEach(btn => {
+                btn.classList.remove('pulse-magnetic', 'pulse-magnetic-green');
+                btn.classList.add('btn-collapsing');
+                btn.style.pointerEvents = 'none';
+            });
+            setTimeout(() => {
+                const regenerateBtn = containerElement.querySelector('.action-button:last-child');
+                if (agreeBtn.parentNode === containerElement) agreeBtn.remove();
+                if (disagreeBtn.parentNode === containerElement) disagreeBtn.remove();
+                const submittedBtn = document.createElement('button');
+                submittedBtn.className = isAgree
+                    ? 'action-button feedback-submitted-agree'
+                    : 'action-button feedback-submitted-disagree';
+                submittedBtn.setAttribute('data-tooltip', isAgree ? 'Feedback submitted: Agree' : 'Feedback submitted: Disagree');
+                const disagreeSubmittedSVG = ``;
+                submittedBtn.innerHTML = isAgree ? checkIconSVG : disagreeSubmittedSVG;
+                submittedBtn.style.opacity = '0';
+                submittedBtn.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                submittedBtn.style.transform = 'scale(0.5)';
+
+                if (!isAgree && formContainer){
+                    submittedBtn.onclick = () => {
+                        const isVisible = formContainer.classList.contains('visible');
+                        if (isVisible){
+                            formContainer.classList.remove('visible');
+                            formContainer.classList.add('hidden');
+                            setTimeout(() => {formContainer.style.display = 'none';}, 300);
+                        } else {
+                            formContainer.style.display = 'block';
+                            setTimeout(() => {
+                                formContainer.classList.remove('hidden');
+                                formContainer.classList.add('visible');
+                            }, 10);
+                        }
+                    };
+                }
+
+                if (regenerateBtn && regenerateBtn.parentNode === containerElement){
+                    containerElement.insertBefore(submittedBtn, regenerateBtn);
+                } else {
+                    containerElement.appendChild(submittedBtn);
+                }
+
+                requestAnimationFrame(() => {
+                    submittedBtn.style.opacity = '1';
+                    submittedBtn.style.transform = 'scale(1)';
+                });
+            }, 380);
+        }
+
+        function regenerateResponse(blockToRemove){
+            if (currentQuestion.trim() === "") return;
+            if (isProcessing) return;
+            if(blockToRemove){
+                blockToRemove.remove();
+            }
+            showLoadingSpinner();
+            abortController = new AbortController();
+            setProcessingState(true);
+            if(isDemoMode){
+                const delay = 1000 + Math.random() * 1000;
+                setTimeout(() => {
+                    if (abortController && abortController.signal.aborted) return;
+                    hideLoadingSpinner();
+                    setProcessingState(false);
+                    const demoData = DEMO_RESPONSES[demoResponseIndex % DEMO_RESPONSES.length];
+                    demoResponseIndex++;
+                    appendBotResponse({
+                        ...demoData,
+                        response: `Regenerated: "${currentQuestion}"\n\n${demoData.response}`,
+                        conversation_id: "demo-regen" + Date.now()
+                    });
+                }, delay);
+                return;
+            }
+            sendMessageStreaming(currentQuestion);
+        }
+
+        async function copyRichTextToClipboard(htmlContent, textContent, buttonElement){
+            const showOk = (msg) => {
+                buttonElement.innerHTML = checkIconSVG;
+                buttonElement.setAttribute('data-tooltip',msg);
+                setTimeout(() =>{
+                    buttonElement.innerHTML = clipboardIconSVG;
+                    buttonElement.setAttribute('data-tooltip','Copy answer');
+                }, 2000);
+            };
+            const showFail = (err) => {
+                console.error('Copy failed:', err);
+                buttonElement.setAttribute('data-tooltip', 'Copy failed');
+            };
+
+            try {
+                if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.write === 'function'){
+                    const htmlBlob = new Blob([htmlContent], {type: 'text/html'});
+                    const textBlob = new Blob([textContent], {type: 'text/plain'});
+                    const item = new ClipboardItem({'text/html': htmlBlob, 'text/plain': textBlob});
+                    await navigator.clipboard.write([item]);
+                    return showOk('Formatted copied!');
+                }
+            } catch (e){
+                // dont care
+            }
+
+            // offline
+            try {
+                const tempDiv = document.createElement('div');
+                tempDiv.style.position = 'fixed';
+                tempDiv.style.left = '-9999px';
+                tempDiv.style.opacity = '0';
+                tempDiv.setAttribute('contenteditable', 'true');
+                tempDiv.innerHTML = htmlContent;
+                document.body.appendChild(tempDiv);
+                const range = document.createRange();
+                range.selectNodeContents(tempDiv);
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                const ok = document.execCommand('copy');
+                selection.removeAllRanges();
+                document.body.removeChild(tempDiv);
+                if (ok) return showOk ('Copied (offline, formatted)!');
+            } catch (e){
+                // dont care
+            }
+
+            // plain text
+            try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function'){
+                    await navigator.clipboard.writeText(textContent || '');
+                    return showOk('Copied (text)!');
+                }
+            } catch (e){
+                // next
+            }
+
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = textContent || '';
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (ok) return showOk('Copied (legacy text)!');
+                showFail('execCommand returned false');
+            } catch (e){
+                showFail(e);
+            }
+        }
+
+        function toggleFeedbackForm(containerElement, disagreeBtn, agreeBtn){
+            const existingForm = containerElement.parentElement.querySelector('.feedback-form-container');
+            const currentState = disagreeBtn.dataset.feedbackState;
+            if(currentState === 'closed'){
+                if (existingForm) existingForm.remove();
+                showDetailedFeedbackForm(containerElement, disagreeBtn, agreeBtn);
+                disagreeBtn.dataset.feedbackState = 'open';
+                disagreeBtn.classList.remove('pulse-magnetic');
+                if (agreeBtn && agreeBtn.dataset.feedbackState !== 'submitted'){
+                    agreeBtn.classList.remove('pulse-magnetic-green');
+                    agreeBtn.classList.add('feedback-disabled');
+                }
+            } else if (currentState === 'open') {
+                if (existingForm) {
+                    existingForm.classList.remove('visible');
+                    existingForm.classList.add('hidden');
+                    setTimeout(()=>{
+                        existingForm.style.display = 'none';
+                    },300);
+                }
+                disagreeBtn.dataset.feedbackState = 'closed';
+                disagreeBtn.classList.add('pulsse-magnetic');
+                if (agreeBtn && agreeBtn.dataset.feedbackState !== 'submitted'){
+                    agreeBtn.classList.remove('feedback-disabled');
+                    agreeBtn.classList.add('pulse-magnetic-green');
+                }
+            } else if (currentState === 'submitted'){
+                if (existingForm){
+                    if (existingForm.style.display === 'none'){
+                        existingForm.style.display = 'block';
+                        setTimeout (() => {
+                            existingForm.classList.remove('hidden');
+                            existingForm.classList.add('visible');
+                        },10);
+                    } else {
+                        existingForm.classList.remove('visible');
+                        existingForm.classList.add('hidden');
+                        setTimeout(() => {
+                            existingForm.style.display = 'none';
+                        }, 300);
+                    }
+                }
+            }
+        }
+
+        function showDetailedFeedbackForm(containerElement, disagreeBtn, agreeBtn){
+            const formContainer = document.createElement('div');
+            formContainer.className = "feedback-form-container";
+            const uniqueId = Date.now();
+            const qualitySection = document.createElement("div");
+            qualitySection.className = "feedback-section";
+            qualitySection.innerHTML = `
+                <label class = "feedback-label">1. Response quality: <span class = "validation-error" id = "error-quality-${uniqueId}" style = "color: #dc3545;">*Missing field</span></label>
+                <div class="star-rating" id = "quality-stars-${uniqueId}">${createStarRating("quality")}</div>
+                `;
+            const speedSection = document.createElement("div");
+            speedSection.className = "feedback-section";
+            speedSection.innerHTML = `
+                <label class = "feedback-label">1. Response quality: <span class = "validation-error" id = "error-speed-${uniqueId}" style = "color: #dc3545;">*Missing field</span></label>
+                <div class="star-rating" id = "speed-stars-${uniqueId}">${createStarRating("speed")}</div>
+                `;
+            const issueSection = document.createElement('div');
+            issueSection.className = "feedback-section";
+            issueSection.innerHTML = ``; // self-define later
+
+            const opinionsSection = document.createElement('div');
+            opinionsSection.className = "feedback-section";
+            opinionsSection.innerHTML = ``; // define later
+
+            // submit and cancel
+            const actionsSection = document.createElement('div');
+            actionsSection.className = "feedback-actions";
+            const submitBtn = document.createElement('button');
+            submitAgree.className = "feedback-submit-btn";
+            submitBtn.textContent = "Submit Feedback";
+            submitBtn.onclick = () => submitDetailedFeedback(formContainer, disagreeBtn, agreeBtn, containerElement, uniqueId);
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "feedback-cancel-btn";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.onclick = () => {
+                formContainer.classList.remove('visible');
+                formContainer.classList.add('hidden');
+                setTimeout(() => {formContainer.remove();}, 300);
+                disagreeBtn.classList.add('pulse-magnetic');
+                if (agreeBtn && agreeBtn.dataset.feedbackState !== 'submitted') {
+                    agreeBtn.classList.remove('feedback-disabled');
+                    agreeBtn.classList.add('pulse-magnetic-green');
+                }
+            };
+            actionsSection.appendChild(submitBtn);
+            actionsSection.appendChild(cancelBtn);
+            formContainer.appendChild(qualitySection);
+            formContainer.appendChild(speedSection);
+            formContainer.appendChild(issueSection);
+            formContainer.appendChild(opinionsSection);
+            formContainer.appendChild(actionsSection);
+            containerElement.parentElement.appendChild(formContainer);
+            setTimeout(() => {formContainer.classList.add('visible');}, 10);
+            initializeStarRating("quality", formContainer);
+            initializeStarRating("speed", formContainer);
+            setTimeout(() => {
+                formContainer.scrollIntoView({behavior:"smooth", block:"nearest"});
+            }, 100);
+        }
+
+        function createStarRating(type){
+            let html = "";
+            for (let i = 1; i<=5; i++){
+                html += ``;
+            }
+            return html;
+        }
+
+        function initializeStarRating(type, container){
+            const stars = container.querySelectorAll(`[data-rating="${type}"]`);
+            stars.forEach((star, index) => {
+                star.addEventListener("click", function (){
+                    let value = parseInt(this.getAttribute("data-value"));
+                    if (value>4) value = 4;
+                    stars.forEach((s,idx) => {
+                        if(idx < value) {
+                            s.classList.add("active");
+                            s.classList.remove("hover-active");
+                        } else {
+                            s.classList.remove("active");
+                            s.classList.remove("hover-active");
+                        }
+                    });
+                });
+                star.addEventListener("mouseenter", function() {
+                    let value = parseInt(this.getAttribute("data-value"));
+                    if (value > 4) value = 4;
+                    stars.forEach((s, idx) => {
+                        if (idx < value) {
+                            if (!s.classList.contains("active")){
+                                s.classList.add("hover-active");
+                            }
+                        } else {
+                            s.classList.remove("hover-active");
+                        }
+                    });
+                });
+                star.parentElement.addEventListener("mouseleave", function () {
+                    stars.forEach((s) => {
+                        s.classList.remove("hover-active");
+                    });
+                });
+            });
+        }
+
+        function submitDetailedFeedback(formcContainer, disagreeBtn, agreeBtn, conainterElement, uniqueId){
+            const qualityStars = formcContainer.querySelectorAll('[data-rating="quality"].active');
+            const qualityRating = qualityStars.length;
+            const speedStars= formContainer.querySelectorAll('[data-rating="speed"].active');
+            const speedRating = speedStars.length;
+            const issues = [];
+            formContainer.querySelectorAll('.issue-checkbox:checked').forEach((checkbox) => {
+                issues.push(checkbox.value);
+            });
+            const otherOpinions = formContainer.querySelector(`#other-opinions-${uniqueId}`).value.trim();
+            const errorQuality = formContainer.querySelector(`#error-quality-${uniqueId}`);
+            const errorSpeed = formContainer.querySelector(`#error-speed-${uniqueId}`);
+            const errorIssues = formContainer.querySelector(`#error-issues-${uniqueId}`);
+            const errorOpinions = formContainer.querySelector(`#error-opinions-${uniqueId}`);
+            if (errorQuality) errorQuality.style.display = 'none';
+            if (errorSpeed) errorSpeed.style.display = 'none';
+            if (errorIssues) errorIssues.style.display = 'none';
+            if (errorOpinions) errorOpinions.style.display = 'none';
+            let hasError = false;
+            if (qualityRating === 0){
+                if(errorQuality) errorQuality.style.display = 'inline';
+                hasError = true;
+            }
+            if (speedRating === 0){
+                if (errorSpeed) errorSpeed.style.display = 'inline';
+                hasError = true;
+            }
+            if (issues.length === 0){
+                if (errorIssues) errorIssues.style.display = 'inline';
+                hasError = true
+            }
+            if (otherOpinions === ""){
+                if (errorOpinions) errorOpinions.style.display = 'inline';
+                hasError = true;
+            }
+            if(hasError) return;
+            const feedbackData = {
+                conversation_id: currentId,
+                answer_satisfaction: 0,
+                quality_rating: qualityRating,
+                speed_rating: speedRating,
+                issues: issues,
+                other_opinions: otherOpinions,
+            };
+            fetch("/detailed_feedback",{
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(feedbackData),
+            })
+            .then((response) => {
+                if (response.ok){
+                    disagreeBtn.dataset.feedbackState = "submitted";
+                    formContainer.classList.add('readonly');
+                    formContainer.querySelectorAll('input, textarea, button').forEach(el => {
+                        el.disabled = true;
+                    });
+                    const actionsSection = formcContainer.querySelector('.feedback-actions');
+                    actionsSection.innerHTML = '<div> Feedback submitted!</div>';
+                    formContainer.dataset.feedbackData = JSON.stringify(feedbackData);
+                    setTimeout(() => {
+                        formContainer.classList.remove('visible');
+                        formContainer.classList.add('hidden');
+                        setTimeout(() => {
+                            formContainer.style.display = 'none';
+                        }, 300);
+                        showSubmittedIcon(agreeBtn, disagreeBtn, containerElement, false, formContainer);
+                    }, 2000);
+                    if (ENABLE_FEEDBACK_REQUIREMENT){
+                        feedbackRequired = false;
+                        pendingFeedbackButton = null;
+                        const userInput = document.getElementById("user-input");
+                        userInput.disabled = false;
+                        userInput.placeholder = "Ask me anything!";
+                        const chatInputWrapper = document.getElementById('chat-input-wrapper');
+                        if (chatInputWrapper) chatInputWrapper.classList.remove('feedback-required');
+                    } else {
+                        alert("Failed to submit feedback!");
+                    }
+                }
+            })
+            .catch((error) => {
+                console.error("Feedback submission error:", error);
+                alert ("An error occurred while submitting feedback.");
+            });
+        }
+
+        function showFeedbackReminder(){
+            const reminder = document.getElementById('feedback-reminder');
+            const chatInputWrapper = document.getElementById('chat-input-wrapper');
+            reminder.classList.add('show');
+            chatInputWrapper.classList.add('feedback-required');
+            if (pendingFeedbackButton) {
+                pendingFeedbackButton.scrollIntoView({behavior: 'smooth', block: 'center'});
+                pendingFeedbackButton.style.animation = 'pulse 1s ease-in-out 3';
+            }
+            setTimeout(() => {
+                reminder.classList.remove('show');
+                chatInputWrapper.classList.remove('feedback-required');
+            }, 4000);
+        }
+
+        function scrollToBottom() {
+            const chatBox = document.getElementById('chat-box');
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function enterKeyPress(event) {
+            if (event.key === 'Enter') {
+                if (isProcessing) return false;
+                if (feedbackRequired){
+                    showFeedbackReminder();
+                    return false;
+                }
+                sendMessage();
+                return false; // Prevent the default action (form submission)
+            }
+            return true;
+        }
+
+        window.addEventListener('pagehide', function() {
+            if (feedbackRequired && currentId){
+                const feedbackData = {
+                    conversation_id: currentId,
+                    answer_satisfaction: null,
+                    quality_rating: null,
+                    speed_rating: null,
+                    issues: ["User closed tab without feedback"],
+                    other_opinions: "Closed tab without providing feedback"
+                };
+                const blob = new Blob([JSON.stringify(feedbackData)], {type: 'application/json'});
+                navigator.sendBeacon("/detailed_feedback", blob);
+                feedbackRequired = false;
+            }
+        });
+
+        // DEMO MODE
+        function finalizeThinking(container, startTime, serverTime = null){
+            const thinkingTime = serverTime || ((Date.now() - startTime) / 1000).toFixed(0);
+            finalizeThinkingAlways(container, thinkingTime, true);
+        }
+
+        function simulateDemoStreaming(userInput){
+            const chatBox = document.getElementById('chat-box');
+            const responseBlock = document.createElement('div');
+            responseBlock.className = 'bot-response-block';
+            const thinkingContainer = createThinkingContainer();
+            responseBlock.appendChild(thinkingContainer);
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            messageDiv.style.display = 'none';
+            responseBlock.appendChild(messageDiv);
+            chatBox.appendChild(responseBlock);
+            hideLoadingSpinner();
+            const thinkingPhrases = [
+                "hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n\n",
+                "hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n\n",
+                "hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n\n",
+                "hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n\n",
+            ];
+            const demoData = DEMO_RESPONSES[demoResponseIndex % DEMO_RESPONSES.length];
+            demoResponseIndex++;
+            let charIndex = 0;
+            let phase = 'thinking';
+            let thinkingText = thinkingPhrases.join('');
+            let answerText = `Bạn hỏi: "${userInput}"\n\n${demoData.response}`;
+            const startTime = Date.now();
+            thinkingContainer.style.display = 'block';
+            const timerId = setInterval(() => {
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                thinkingContainer.querySelector('.thinking-duration').textContent = `${elapsed}s`;
+            }, 100);
+            const streamInterval = setInterval(() => {
+                // BỌC TRY...CATCH LÀ BẮT BUỘC ĐỂ TRÁNH CRASH NGẦM
+                try {
+                    if (abortController && abortController.signal.aborted){
+                        clearInterval(streamInterval);
+                        clearInterval(timerId);
+                        return;
+                    }
+
+                    if (phase === 'thinking'){
+                        if (charIndex < thinkingText.length){
+                            const chunk = thinkingText.slice(charIndex, charIndex + 3);
+                            charIndex += 3;
+                            const thinkingContentDiv = thinkingContainer.querySelector('.thinking-content');
+                            thinkingContentDiv.innerHTML = thinkingText.slice(0, charIndex).replace(/\n/g, '<br>') + '<span class="streaming-cursor"></span>';
+                        } else {
+                            // KẾT THÚC THINKING -> CHUYỂN SANG ANSWER
+                            phase = 'answer';
+                            charIndex = 0;
+                            clearInterval(timerId); // Dừng đếm giờ
+                            
+                            // Gọi hàm cũ của bạn
+                            if (typeof finalizeThinking === 'function') {
+                                finalizeThinking(thinkingContainer, startTime);
+                            }
+                            
+                            thinkingContainer.classList.add('collapsed');
+
+                            // Bật hiển thị cho div chứa câu trả lời
+                            messageDiv.style.display = 'block'; 
+                        }
+                        
+                    } else if (phase === 'answer') {
+                        if (charIndex < answerText.length){
+                            charIndex += 5;
+                            
+                            let currentChunk = answerText.slice(0, charIndex);
+                            let htmlContent = currentChunk;
+                            
+                            // Kiểm tra an toàn trước khi gọi các hàm helper để tránh crash luồng
+                            if (typeof renderMarkdown === 'function') htmlContent = renderMarkdown(currentChunk);
+                            if (typeof addStreamingCursor === 'function') htmlContent = addStreamingCursor(htmlContent);
+                            
+                            messageDiv.innerHTML = htmlContent;
+                            if (typeof scrollToBottom === 'function') scrollToBottom();
+                            
+                        } else {
+                            // KẾT THÚC HOÀN TOÀN CẢ LUỒNG
+                            clearInterval(streamInterval);
+                            
+                            let finalHtml = answerText;
+                            if (typeof renderMarkdown === 'function') finalHtml = renderMarkdown(answerText);
+                            messageDiv.innerHTML = finalHtml;
+
+                            // Các hàm chức năng chạy sau khi text đã render xong
+                            if (typeof applyKaTeX === 'function') applyKaTeX(messageDiv);
+                            
+                            if (demoData.sources && demoData.sources.length > 0 && typeof appendSourceButtons === 'function'){
+                                appendSourceButtons(demoData.sources, responseBlock);
+                            }
+                            
+                            if (typeof appendActionButtons === 'function') {
+                                appendActionButtons(messageDiv.innerHTML, answerText, responseBlock);
+                            }
+                            
+                            currentId = 'demo-' + Date.now();
+                            if (typeof setProcessingState === 'function') setProcessingState(false);
+                        }
+                    }
+                } catch (error) {
+                    // NẾU CÓ LỖI, NÓ SẼ IN RA ĐÂY THAY VÌ TREO UI
+                    console.error("Demo Stream error:", error);
+                    clearInterval(streamInterval);
+                    clearInterval(timerId);
+                    messageDiv.style.display = 'block';
+                }
+            }, 30);
+        }
+
+        // AUTO SUGGESTION
+        const inputField = document.getElementById('user-input');
+        const dropdown = document.getElementById('autocomplete-list');
+        const chatWrapper = document.getElementById('chat-input-wrapper');
+        let debounceTimer;
+
+        // Bắt sự kiện mỗi khi người dùng gõ phím HOẶC xóa phím
+        inputField.addEventListener('input', function() {
+            const query = this.value.trim();
+            
+            clearTimeout(debounceTimer);
+
+            // XỬ LÝ KHI Ô INPUT BỊ XÓA TRẮNG
+            if (query.length === 0) {
+                dropdown.style.display = 'none';
+                chatWrapper.classList.remove('dropdown-open');
+                return; // Ngắt hàm, không gọi API nữa
+            }
+
+            // Đặt bộ đếm giờ mới: Chờ 300ms sau nhịp gõ cuối cùng mới gọi API
+            debounceTimer = setTimeout(() => {
+                fetchSuggestions(query);
+            }, 300); 
+        });
+
+        async function fetchSuggestions(query) {
+            try {
+                // Gọi API backend
+                const response = await fetch(`/api/suggest?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                
+                renderDropdown(data.suggestions, query);
+            } catch (error) {
+                console.error("Lỗi gọi gợi ý:", error);
+            }
+        }
+
+        function renderDropdown(suggestions, query) {
+            dropdown.innerHTML = '';
+            
+            if (suggestions.length === 0) {
+                dropdown.style.display = 'none';
+                chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS: Đóng lại bo tròn
+                return;
+            }
+
+            suggestions.forEach(htmlText => {
+                const item = document.createElement('div');
+                item.className = 'autocomplete-item';
+                
+                // Gán trực tiếp chuỗi HTML do Backend trả về
+                item.innerHTML = htmlText; 
+                
+                item.addEventListener('click', function() {
+                    dropdown.style.display = 'none';
+                    chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS: Đóng lại bo tròn
+                    inputField.value = '';
+                    sendMessage(item.textContent);
+                });
+                
+                dropdown.appendChild(item);
+            });
+            
+            dropdown.style.display = 'block';
+            chatWrapper.classList.add('dropdown-open'); // THÊM CLASS: Làm phẳng góc dưới để dính liền
+        }
+
+        // Ẩn menu khi click ra ngoài vùng input
+        document.addEventListener('click', function(e) {
+            if (e.target !== inputField && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS
+            }
+        });
+
+        // Hiện lại menu khi người dùng click hoặc tab lại vào ô input
+        inputField.addEventListener('focus', function() {
+            const query = this.value.trim();
+            
+            // Chỉ mở lại dropdown nếu input đang có chữ VÀ dropdown đang chứa phần tử bên trong
+            if (query.length > 0 && dropdown.innerHTML.trim() !== '') {
+                dropdown.style.display = 'block';
+                chatWrapper.classList.add('dropdown-open'); // Đảm bảo UI dính liền mạch
+            }
+        });
+    </script>
+</body>
+</html>
