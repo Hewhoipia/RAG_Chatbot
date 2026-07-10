@@ -1,10 +1,9 @@
-# Đây chỉ là phần demo auto suggest bằng thuật toán Word-Level Suffix Trie, áp dụng cho tập FAQ nhỏ.
-# Cân nhắc đề xuất trong methodology.md để tăng khả năng scale-up của hệ thống
-from typing import List, Set
+# Đây chỉ là phần demo auto suggest bằng thuật toán áp dụng cho tập FAQ nhỏ ~1000 câu
+# Cân nhắc đề xuất trong methodology.md để tăng khả năng scale-up của hệ thống nếu cần
+from typing import List, Tuple, Union, Set
 import re
 
 def remove_vietnamese_accents(s: str) -> str:
-    """Hàm loại bỏ dấu tiếng Việt, chuyển về chữ cái la-tinh cơ bản"""
     s = s.lower()
     s = re.sub(r'[àáạảãâầấậẩẫăằắặẳẵ]', 'a', s)
     s = re.sub(r'[èéẹẻẽêềếệểễ]', 'e', s)
@@ -15,96 +14,130 @@ def remove_vietnamese_accents(s: str) -> str:
     s = re.sub(r'[đ]', 'd', s)
     return s
 
-def highlight_text(original_text: str, query: str) -> str:
-    """Hàm bọc thẻ HTML cho các từ khóa trùng khớp (có hoặc không dấu)"""
-    unaccented_query_words = remove_vietnamese_accents(query).split()
+def fuzzy_sequence_match(original_text: str, query: str) -> bool:
+    """
+    Kiểm tra xem chuỗi query có khớp mờ với original_text hay không.
+    - Gõ không dấu: Bắt mọi từ có dấu.
+    - Gõ có dấu: Yêu cầu khớp chính xác dấu.
+    """
+    # CHÚ Ý: Lột MỌI khoảng trắng, đưa về chữ thường, nhưng GIỮ NGUYÊN DẤU
+    text_no_spaces = original_text.replace(" ", "").lower()
+    query_no_spaces = query.replace(" ", "").lower()
     
-    # Chia câu gốc thành mảng các từ, bảo toàn khoảng trắng và dấu câu nếu cần
-    # (Để đơn giản, ở đây cắt bằng split() và nối bằng dấu cách)
-    words = original_text.split()
-    highlighted_words = []
+    if not query_no_spaces:
+        return False
+
+    text_idx = 0
+    query_idx = 0
     
-    for word in words:
-        unaccented_word = remove_vietnamese_accents(word)
-        match_found = False
+    while text_idx < len(text_no_spaces) and query_idx < len(query_no_spaces):
+        char_t = text_no_spaces[text_idx]
+        char_q = query_no_spaces[query_idx]
         
-        # Kiểm tra xem từ hiện tại có bắt đầu bằng bất kỳ từ khóa nào người dùng gõ không
-        for q_word in unaccented_query_words:
-            if unaccented_word.startswith(q_word):
-                # Nếu khớp, bọc thẻ span quanh từ gốc có dấu
-                highlighted_words.append(f"<span class='highlight'>{word}</span>")
-                match_found = True
-                break
+        # LOGIC CỐT LÕI MỚI:
+        # Điều kiện 1 (char_t == char_q): Khớp chính xác (Cùng có dấu hoặc cùng không dấu).
+        # Điều kiện 2: Ký tự gốc lột dấu đi thì giống với ký tự người dùng gõ.
+        is_match = (char_t == char_q) or (remove_vietnamese_accents(char_t) == char_q)
+        
+        if is_match:
+            query_idx += 1
+        else:
+            query_idx = 0 
+            # Bắt đầu lại nếu ký tự hiện tại khớp với ký tự đầu của query
+            char_q0 = query_no_spaces[0]
+            if (char_t == char_q0) or (remove_vietnamese_accents(char_t) == char_q0):
+                query_idx = 1
                 
-        if not match_found:
-            highlighted_words.append(word)
-            
-    return " ".join(highlighted_words)
-
-class TrieNode:
-    def __init__(self):
-        self.children = {}
-        # Thay vì chỉ lưu True/False, lưu tập hợp ID của các câu gốc để chống trùng lặp
-        self.original_texts = set()
-
-class WordSuffixTrie:
-    def __init__(self):
-        self.root = TrieNode()
-        self.faq_database = [] # Nơi lưu trữ văn bản gốc
-
-    def insert(self, text: str, text_id: int):
-        # Chuẩn hóa câu gốc thành câu không dấu
-        unaccented_text = remove_vietnamese_accents(text)
+        text_idx += 1
         
-        # Cắt các từ dựa trên câu KHÔNG DẤU
-        words = unaccented_text.split()
-        
-        for i in range(len(words)):
-            suffix_str = " ".join(words[i:])
-            # Truyền cả suffix KHÔNG DẤU và text gốc CÓ DẤU vào cây
-            self._insert_suffix(suffix_str, text, text_id)
-            
-    def _insert_suffix(self, suffix: str, original_text: str, text_id: int):
-        node = self.root
-        for char in suffix:
-            if char not in node.children:
-                node.children[char] = TrieNode()
-            node = node.children[char]
-            
-        # Ở Node cuối của hậu tố này, ghi nhận ID câu gốc
-        node.original_texts.add((text_id, original_text))
+    return query_idx == len(query_no_spaces)
 
-    def _dfs(self, node: TrieNode, limit: int, results: Set[tuple]):
-        """Duyệt sâu để lấy kết quả"""
-        if len(results) >= limit:
-            return
-        
-        # Nếu node này kết thúc một hậu tố hợp lệ, thêm câu gốc vào kết quả
-        if node.original_texts:
-            for item in node.original_texts:
-                results.add(item)
-                
-        for char, child_node in node.children.items():
-            self._dfs(child_node, limit, results)
+# Bản đồ ánh xạ ký tự không dấu sang bộ ký tự có dấu (Regex)
+CHAR_MAP = {
+    'a': '[aàáạảãâầấậẩẫăằắặẳẵ]',
+    'e': '[eèéẹẻẽêềếệểễ]',
+    'i': '[iìíịỉĩ]',
+    'o': '[oòóọỏõôồốộổỗơờớợởỡ]',
+    'u': '[uùúụủũưừứựửữ]',
+    'y': '[yỳýỵỷỹ]',
+    'd': '[dđ]'
+}
 
+def fuzzy_highlight(original_text: str, query: str) -> str:
+    """Highlight bỏ qua khoảng trắng nhưng giữ nguyên dấu và định dạng gốc"""
+    # Vẫn giữ nguyên dấu của query để phân tích
+    query_no_spaces = query.replace(" ", "").lower()
+    if not query_no_spaces:
+        return original_text
+        
+    regex_parts = []
+    
+    for char in query_no_spaces:
+        unaccented_char = remove_vietnamese_accents(char)
+        
+        # NẾU GÕ KHÔNG DẤU (char == unaccented_char) -> Bung Regex để highlight tất cả biến thể
+        if char == unaccented_char and char in CHAR_MAP:
+            regex_parts.append(CHAR_MAP[char])
+            
+        # NẾU GÕ CÓ DẤU (Ví dụ 'ẻ', 'đ') -> Khóa Regex, bắt buộc highlight chính xác ký tự đó
+        else:
+            regex_parts.append(re.escape(char))
+            
+    # Nối các ký tự lại, cho phép có khoảng trắng xen giữa
+    pattern_str = r'\s*'.join(regex_parts)
+    
+    try:
+        pattern = re.compile(f"({pattern_str})", re.IGNORECASE)
+        return pattern.sub(r"<span class='autocomplete-item-highlight'>\1</span>", original_text)
+    except Exception:
+        return original_text
+
+class AutoSuggestEngine:
+    def __init__(self, database: List[Union[str, Tuple[str]]]):
+        self.database = database
+        
+    def _calculate_score(self, original_text: str, query: str) -> int:
+        """Hàm chấm điểm độ ưu tiên của từ khóa"""
+        text_unaccented = remove_vietnamese_accents(original_text).lower()
+        query_unaccented = remove_vietnamese_accents(query).lower()
+        
+        # MỨC 1 (100 ĐIỂM): Khớp nguyên từ (Word Boundary)
+        # VD: Gõ "atm" -> Khớp đúng chữ "ATM" đứng độc lập trong "ATM là gì"
+        if re.search(r'\b' + re.escape(query_unaccented) + r'\b', text_unaccented):
+            return 100
+            
+        # MỨC 2 (80 ĐIỂM): Khớp chuỗi liên tục (Nằm bên trong một từ khác)
+        # VD: Gõ "atm" -> Khớp chữ "Batman" (nếu có)
+        if query_unaccented in text_unaccented:
+            return 80
+            
+        # MỨC 3 (50 ĐIỂM): Khớp xuyên khoảng trắng (Fuzzy match)
+        # VD: Gõ "atm" -> Khớp "đặt máy" (dat may -> datmay)
+        return 50    
+    
     def search(self, query: str, limit: int = 5) -> List[str]:
-        node = self.root
-        
-        # Chuẩn hóa cả chuỗi gõ của người dùng thành không dấu
-        unaccented_query = remove_vietnamese_accents(query.strip())
-        
-        for char in unaccented_query:
-            if char not in node.children:
-                return []
-            node = node.children[char]
+        try:
+            # Khởi tạo mảng lưu kết quả kèm điểm số
+            scored_results = []
+            for faq in self.database:
+                faq = faq[0] if isinstance(faq, tuple) else faq
+                faq = str(faq)
+                if fuzzy_sequence_match(faq, query):
+                    # Nếu khớp, tính điểm của câu này
+                    score = self._calculate_score(faq, query)
+                    scored_results.append((score, faq))
+                    
+            # BƯỚC QUAN TRỌNG: Sắp xếp mảng theo điểm số (giảm dần) 
+            # Cùng điểm thì giữ nguyên thứ tự gốc
+            scored_results.sort(key=lambda x: x[0], reverse=True)
             
-        results = set()
-        self._dfs(node, limit, results)
-        
-        final_results = []
-        for item in list(results)[:limit]:
-            original_text = item[1]
-            highlighted = highlight_text(original_text, query)
-            final_results.append(highlighted)
-            
-        return final_results
+            # Cuối cùng mới cắt lấy limit và bọc thẻ Highlight
+            final_results = []
+            for score, faq in scored_results[:limit]:
+                highlighted = fuzzy_highlight(faq, query)
+                final_results.append(highlighted)
+                
+            return final_results
+        except Exception as e:
+            print (f"[AutoSuggestEngine] error at search:", e)
+            return []

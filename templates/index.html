@@ -40,7 +40,9 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
             background-color: var(--bg-color);
         }
 
@@ -191,9 +193,8 @@
         /* Chat input styles */
         .input-area-wrapper{
             width: 50%;
-            margin-left: auto;
-            margin-right: auto;
-            padding: 20px 25px;
+            margin: 20px auto;
+            padding: 25px 25px;
             flex-shrink: 0;
             transition: all 0.3s ease-in-out;
             position: relative;
@@ -206,24 +207,39 @@
             width: 50%;
         }
         .chat-input {
-            /* THÊM position: relative để làm gốc tọa độ cho dropdown */
-            position: relative; 
+            position: absolute;
+            /* chỉ cần khi position absolute: khối trôi nổi */
+            top: 0;
+            bottom: auto;
+            left: 0;
+            
+            width: 100%;
+
+            z-index: 1000;
+            flex-direction: column;
             display: flex;
-            align-items: center;
+            align-items: stretch;
             background-color: var(--container-bg);
             border-radius: 25px;
-            padding: 5px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            
-            /* Thêm transition để hiệu ứng đổi bo góc mượt mà */
-            transition: border-radius 0.2s ease;
-            z-index: 1001; 
         }
-        /* Sẽ được JS tự động thêm vào khi dropdown mở */
-        .chat-input.dropdown-open {
-            border-bottom-left-radius: 0px;
-            border-bottom-right-radius: 0px;
-            box-shadow: 0 0px 0px rgba(0, 0, 0, 0); /* Bỏ bóng để nhường cho dropdown */
+        .chat-input.chat-input-started {
+            flex-direction: column-reverse;
+            /* chỉ cần khi position absolute: khối trôi nổi */
+            top: auto;
+            bottom: 0;
+        }
+        .chat-input.chat-input-started .autocomplete-dropdown{
+            border-top: none;
+            border-bottom: 1px solid transparent;
+        }
+        .chat-input.chat-input-started .autocomplete-dropdown.active {
+            border-bottom-color: #ddd;
+        }
+        .chat-input-row {
+            display: flex;
+            align-items: center;
+            padding: 5px;
         }
         .chat-input input {
             flex: 1;
@@ -269,6 +285,38 @@
             height: 20px;
             transition: transform 0.3s ease;
         }
+
+        /* REAL-TIME AUTO SUGGEST */
+        /* Khung dropdown chứa các gợi ý */
+        .autocomplete-dropdown {
+            width: 100%;
+            max-height: 0px;
+            overflow: hidden;
+            border-top: 1px solid transparent;
+        }
+        .autocomplete-dropdown.active {
+            border-top-color: #ddd;
+            max-height: 210px;
+            overflow: auto;
+        }
+        /* Định dạng lại item cho đẹp */
+        .autocomplete-item-wrapper {
+            margin: 5px;
+        }
+        .autocomplete-item {
+            padding: 10px 10px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .autocomplete-item:hover {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+        }
+        /* Highlight đoạn text khớp với từ khóa */
+        .autocomplete-item-highlight {
+            color: #999999;
+        }
+
         .app-footer {
             text-align: center;
             font-size: 12px;
@@ -602,46 +650,6 @@
             color: #007bff;
         }
 
-        /* REAL-TIME AUTO SUGGEST */
-        /* Khung dropdown chứa các gợi ý */
-        .autocomplete-dropdown {
-            position: absolute;
-            top: 100%; /* Quan trọng: Đẩy menu xuống dưới ô input */
-            left: 0;
-            width: 100%;
-            box-sizing: border-box; /* Đảm bảo chiều rộng chuẩn xác không bị tràn viền */
-            
-            background-color: var(--container-bg); /* Cùng màu với ô chat */
-            
-            /* Bo góc bên dưới cho khớp với thiết kế bo tròn */
-            border-bottom-left-radius: 15px;
-            border-bottom-right-radius: 15px;
-            
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            max-height: 200px;
-            overflow-y: auto;
-            display: none; 
-            z-index: 1000;
-        }
-
-        /* Định dạng lại item cho đẹp */
-        .autocomplete-item {
-            padding: 10px 15px;
-            cursor: pointer;
-            border-bottom: 1px solid #f1f1f1;
-            font-size: 14px;
-        }
-        .autocomplete-item:last-child {
-            border-bottom: none;
-        }
-        .autocomplete-item:hover {
-            background-color: #f8f9fa;
-        }
-        
-        /* Highlight đoạn text khớp với từ khóa */
-        .highlight {
-            color: #c4c4c4;
-        }
     </style>
 </head>
 <body>
@@ -678,16 +686,18 @@
                 Please submit feedback before asking a new quesion
             </div>
             <div class="chat-input" id="chat-input-wrapper">
-                <div id="autocomplete-list" class="autocomplete-dropdown"></div>
-                <input type="text" id="user-input" placeholder="Ask me anything" autocomplete="off" onkeypress="return enterKeyPress(event);"/>
-                <button id="send-btn" onclick="handleSendButtonClick()">
-                    <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
-                        <path/>
-                    </svg>
-                    <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" style="display: none;">
-                        <rect x="6" y="6" width="12" height="12" rx="2"/>
-                    </svg>
-                </button>
+                <div class="chat-input-row">
+                    <input type="text" id="user-input" placeholder="Ask me anything" autocomplete="off" onkeypress="return enterKeyPress(event);"/>
+                    <button id="send-btn" onclick="handleSendButtonClick()">
+                        <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
+                            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                        </svg>
+                        <svg id="stop-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" style="display: none;">
+                            <rect x="6" y="6" width="12" height="12" rx="2"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
             </div>
         </div>
         <div class="app-footer">
@@ -912,9 +922,10 @@
         }
 
         function sendMessage(suggestedText = null) {
-            const userInput = suggestedText || document.getElementById('user-input').value.trim();
-            if (userInput === '') return;
-            
+            clearTimeout(debounceTimer);
+            toggleDropdown(false);
+            const userInput = suggestedText || document.getElementById('user-input').value;
+            if (userInput.trim() === '') return;
             if (feedbackRequired){
                 showFeedbackReminder();
                 return;
@@ -923,8 +934,10 @@
             if(isProcessing) return;
 
             const chatContainer = document.getElementById('main-container');
+            const chatInputWrapper = document.getElementById('chat-input-wrapper');
             if (!chatContainer.classList.contains('chat-started')) {
                 chatContainer.classList.add('chat-started');
+                chatInputWrapper.classList.add('chat-input-started');
             }
 
             appendMessage(userInput, 'user');
@@ -1881,21 +1894,25 @@
         }
 
         // AUTO SUGGESTION
+
         const inputField = document.getElementById('user-input');
-        const dropdown = document.getElementById('autocomplete-list');
-        const chatWrapper = document.getElementById('chat-input-wrapper');
+        const dropdown = document.getElementById('autocomplete-dropdown');
+        const ChatStartedDropdownInactive = false;
         let debounceTimer;
 
         // Bắt sự kiện mỗi khi người dùng gõ phím HOẶC xóa phím
         inputField.addEventListener('input', function() {
+            const chatWrapper = document.getElementById('chat-input-wrapper');
+            if (ChatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
+                return; 
+            }
             const query = this.value.trim();
             
             clearTimeout(debounceTimer);
 
             // XỬ LÝ KHI Ô INPUT BỊ XÓA TRẮNG
             if (query.length === 0) {
-                dropdown.style.display = 'none';
-                chatWrapper.classList.remove('dropdown-open');
+                toggleDropdown(false);
                 return; // Ngắt hàm, không gọi API nữa
             }
 
@@ -1903,6 +1920,27 @@
             debounceTimer = setTimeout(() => {
                 fetchSuggestions(query);
             }, 300); 
+        });
+
+        // Ẩn menu khi click ra ngoài vùng input
+        document.addEventListener('click', function(e) {
+            if (e.target !== inputField && !dropdown.contains(e.target)) {
+                toggleDropdown(false);
+            }
+        });
+
+        // Hiện lại menu khi người dùng click hoặc tab lại vào ô input
+        inputField.addEventListener('focus', function() {
+            const chatWrapper = document.getElementById('chat-input-wrapper');
+            if (ChatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
+                return; 
+            }
+            const query = this.value.trim();
+            
+            // Chỉ mở lại dropdown nếu input đang có chữ VÀ dropdown đang chứa phần tử bên trong
+            if (query.length > 0 && dropdown.innerHTML.trim() !== '') {
+                toggleDropdown(true);
+            }
         });
 
         async function fetchSuggestions(query) {
@@ -1918,15 +1956,20 @@
         }
 
         function renderDropdown(suggestions, query) {
+            if (inputField.value.trim() === '' || inputField.value.trim() !== query) {
+                toggleDropdown(false);
+                return; // Dừng ngay lập tức, không vẽ HTML ra nữa
+            }
             dropdown.innerHTML = '';
-            
             if (suggestions.length === 0) {
-                dropdown.style.display = 'none';
-                chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS: Đóng lại bo tròn
+                toggleDropdown(false);
                 return;
             }
-
+            const itemWrapper = document.createElement('div');
+            itemWrapper.innerHTML='';
+            itemWrapper.className = 'autocomplete-item-wrapper';
             suggestions.forEach(htmlText => {
+                
                 const item = document.createElement('div');
                 item.className = 'autocomplete-item';
                 
@@ -1934,37 +1977,23 @@
                 item.innerHTML = htmlText; 
                 
                 item.addEventListener('click', function() {
-                    dropdown.style.display = 'none';
-                    chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS: Đóng lại bo tròn
                     inputField.value = '';
                     sendMessage(item.textContent);
                 });
                 
-                dropdown.appendChild(item);
+                itemWrapper.appendChild(item);
             });
-            
-            dropdown.style.display = 'block';
-            chatWrapper.classList.add('dropdown-open'); // THÊM CLASS: Làm phẳng góc dưới để dính liền
+            dropdown.appendChild(itemWrapper);
+            toggleDropdown(true);
         }
 
-        // Ẩn menu khi click ra ngoài vùng input
-        document.addEventListener('click', function(e) {
-            if (e.target !== inputField && !dropdown.contains(e.target)) {
-                dropdown.style.display = 'none';
-                chatWrapper.classList.remove('dropdown-open'); // XÓA CLASS
+        function toggleDropdown(show) {
+            if (show) {
+                dropdown.classList.add('active');
+            } else {
+                dropdown.classList.remove('active');
             }
-        });
-
-        // Hiện lại menu khi người dùng click hoặc tab lại vào ô input
-        inputField.addEventListener('focus', function() {
-            const query = this.value.trim();
-            
-            // Chỉ mở lại dropdown nếu input đang có chữ VÀ dropdown đang chứa phần tử bên trong
-            if (query.length > 0 && dropdown.innerHTML.trim() !== '') {
-                dropdown.style.display = 'block';
-                chatWrapper.classList.add('dropdown-open'); // Đảm bảo UI dính liền mạch
-            }
-        });
+        }
     </script>
 </body>
 </html>
