@@ -196,7 +196,7 @@
             margin: 20px auto;
             padding: 25px 25px;
             flex-shrink: 0;
-            transition: all 0.3s ease-in-out;
+            transition: all 0.4s ease-in-out;
             position: relative;
         }
         .main-container:not(.chat-started) .input-area-wrapper{
@@ -212,9 +212,7 @@
             top: 0;
             bottom: auto;
             left: 0;
-            
             width: 100%;
-
             z-index: 1000;
             flex-direction: column;
             display: flex;
@@ -296,21 +294,56 @@
         }
         .autocomplete-dropdown.active {
             border-top-color: #ddd;
-            max-height: 210px;
+            max-height: 250px;
             overflow: auto;
         }
         /* Định dạng lại item cho đẹp */
         .autocomplete-item-wrapper {
             margin: 5px;
+            /*padding: 5px 0px;*/
         }
         .autocomplete-item {
-            padding: 10px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 10px;
             cursor: pointer;
-            font-size: 14px;
+        }
+        .autocomplete-item-text {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 15px;
+        }
+        /* Icon mũi tên xéo lên (Fill icon) */
+        .autocomplete-item-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 27px;
+            height: 27px;
+            border-radius: 30%;
+            margin-left: 8px;
+            color: #9aa0a6;
+            transition: background-color 0.2s;
+        }
+        .autocomplete-item-icon:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: #202124;
+        }
+        .autocomplete-item-icon svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
         }
         .autocomplete-item:hover {
             background-color: #f8f9fa;
-            border-radius: 10px;
+            border-radius: 25px;
+        }
+        .autocomplete-item.kb-active {
+            background-color: #f8f9fa;
+            border-radius: 25px;
         }
         /* Highlight đoạn text khớp với từ khóa */
         .autocomplete-item-highlight {
@@ -687,7 +720,7 @@
             </div>
             <div class="chat-input" id="chat-input-wrapper">
                 <div class="chat-input-row">
-                    <input type="text" id="user-input" placeholder="Ask me anything" autocomplete="off" onkeypress="return enterKeyPress(event);"/>
+                    <input type="text" id="user-input" placeholder="Ask me anything" onkeypress="return enterKeyPress(event);"/>
                     <button id="send-btn" onclick="handleSendButtonClick()">
                         <svg id="send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
                             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -1897,15 +1930,20 @@
 
         const inputField = document.getElementById('user-input');
         const dropdown = document.getElementById('autocomplete-dropdown');
-        const ChatStartedDropdownInactive = false;
+        const chatStartedDropdownInactive = false;
+        let previousFocusIndex = -1;
+        let currentFocusIndex = -1;
+        let originalQuery = '';
         let debounceTimer;
 
         // Bắt sự kiện mỗi khi người dùng gõ phím HOẶC xóa phím
         inputField.addEventListener('input', function() {
             const chatWrapper = document.getElementById('chat-input-wrapper');
-            if (ChatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
+            if (chatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
                 return; 
             }
+            // Lưu lại nguyên trạng những gì người dùng vừa gõ
+            originalQuery = this.value;
             const query = this.value.trim();
             
             clearTimeout(debounceTimer);
@@ -1932,7 +1970,7 @@
         // Hiện lại menu khi người dùng click hoặc tab lại vào ô input
         inputField.addEventListener('focus', function() {
             const chatWrapper = document.getElementById('chat-input-wrapper');
-            if (ChatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
+            if (chatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
                 return; 
             }
             const query = this.value.trim();
@@ -1942,6 +1980,93 @@
                 toggleDropdown(true);
             }
         });
+
+        inputField.addEventListener('keydown', function(e) {
+            const chatWrapper = document.getElementById('chat-input-wrapper');
+            if (chatStartedDropdownInactive && chatWrapper.classList.contains('chat-input-started')) {
+                return; 
+            }
+            if (!dropdown.classList.contains('active')) return; 
+            const items = dropdown.querySelectorAll('.autocomplete-item');
+            if (items.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault(); 
+                previousFocusIndex = currentFocusIndex;
+                currentFocusIndex++;
+                // Nếu đi lố item cuối cùng -> Quay về trạng thái không chọn (Index -1)
+                if (currentFocusIndex >= items.length) {
+                    currentFocusIndex = -1; 
+                }
+                updateInputOnArrowPress(items);
+                
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                previousFocusIndex = currentFocusIndex;
+                currentFocusIndex--;
+                // Nếu lùi lố item đầu tiên -> Nhảy xuống item cuối cùng
+                if (currentFocusIndex < -1) {
+                    currentFocusIndex = items.length - 1; 
+                }
+                updateInputOnArrowPress(items);
+                
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                previousFocusIndex = currentFocusIndex;
+                currentFocusIndex++;
+                // Nếu đi lố item cuối cùng -> Quay về trạng thái không chọn (Index -1)
+                if (currentFocusIndex >= items.length) {
+                    currentFocusIndex = -1; 
+                }
+                updateInputOnArrowPress(items);
+            }
+        });
+
+        // Xử lý nhảy chữ lên ô input và highlight item
+        function updateInputOnArrowPress(items) {
+            // Highlight UI
+            setActiveItem(items); 
+            
+            // Cập nhật chữ trên ô input
+            if (currentFocusIndex === -1) {
+                // Trả lại chữ gốc nếu không chọn item nào
+                inputField.value = originalQuery; 
+            } else {
+                // Lấy chữ của item đang được highlight đưa thẳng lên input
+                const textToPreview = items[currentFocusIndex].querySelector('.autocomplete-item-text').textContent;
+                inputField.value = textToPreview; 
+            }
+        }
+
+        // Hàm hỗ trợ đổi màu Hover bằng bàn phím
+        function setActiveItem(items) {
+            // Xóa active cũ
+            if (previousFocusIndex > -1 && previousFocusIndex < items.length) {
+            items[previousFocusIndex].classList.remove('kb-active');
+            }
+            
+            // Set active mới
+            if (currentFocusIndex > -1 && currentFocusIndex < items.length) {
+                items[currentFocusIndex].classList.add('kb-active');
+                
+                // Tự động cuộn Scrollbar nếu list quá dài
+                items[currentFocusIndex].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest'
+                });
+            }
+        }
+
+        // Hàm hỗ trợ Điền chữ và Giữ focus
+        function fillInputAndFocus(text) {
+            inputField.value = text;
+            // toggleDropdown(false); // Đóng menu
+            inputField.focus(); // Trả lại con trỏ nhấp nháy cho ô input
+            
+            // Đưa con trỏ nhấp nháy xuống cuối câu
+            const len = inputField.value.length;
+            inputField.setSelectionRange(len, len);
+        }
 
         async function fetchSuggestions(query) {
             try {
@@ -1961,6 +2086,7 @@
                 return; // Dừng ngay lập tức, không vẽ HTML ra nữa
             }
             dropdown.innerHTML = '';
+            currentFocusIndex = -1; // Reset vị trí bàn phím mỗi khi có list mới
             if (suggestions.length === 0) {
                 toggleDropdown(false);
                 return;
@@ -1968,19 +2094,37 @@
             const itemWrapper = document.createElement('div');
             itemWrapper.innerHTML='';
             itemWrapper.className = 'autocomplete-item-wrapper';
-            suggestions.forEach(htmlText => {
-                
+            suggestions.forEach(itemData => {
                 const item = document.createElement('div');
                 item.className = 'autocomplete-item';
+
+                // Vùng TEXT click để sendMessage
+                const textZone = document.createElement('div');
+                textZone.className = 'autocomplete-item-text';
+                textZone.innerHTML = itemData.highlighted_html; // Lấy bản có highlight để hiển thị
                 
-                // Gán trực tiếp chuỗi HTML do Backend trả về
-                item.innerHTML = htmlText; 
-                
-                item.addEventListener('click', function() {
+                textZone.addEventListener('click', function(e) {
+                    e.stopPropagation();
                     inputField.value = '';
-                    sendMessage(item.textContent);
+                    sendMessage(itemData.raw_text); // Gửi bản text thuần
                 });
-                
+                // Vùng ICON clock để fill vào chat-input
+                const iconZone = document.createElement('div');
+                iconZone.className = 'autocomplete-item-icon';
+                if (document.getElementById('chat-input-wrapper').classList.contains('chat-input-started')){
+                    // Mũi tên hướng xuống bên trái
+                    iconZone.innerHTML = `<svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15 19v-2H8.41L20 5.41 18.59 4 7 15.59V9H5v10h10z"></path></svg>`;
+                } else {
+                    // Mũi tên hướng lên bên trái
+                    iconZone.innerHTML = `<svg focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 15h2V8.41L18.59 20 20 18.59 8.41 7H15V5H5v10z"></path></svg>`;
+                }
+                iconZone.addEventListener('click', function(e) {
+                    e.stopPropagation(); 
+                    fillInputAndFocus(itemData.raw_text); // Điền bản text thuần lên ô chat
+                });
+
+                item.appendChild(textZone);
+                item.appendChild(iconZone);
                 itemWrapper.appendChild(item);
             });
             dropdown.appendChild(itemWrapper);

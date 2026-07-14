@@ -88,9 +88,15 @@ def fuzzy_highlight(original_text: str, query: str) -> str:
     
     try:
         pattern = re.compile(f"({pattern_str})", re.IGNORECASE)
-        return pattern.sub(r"<span class='autocomplete-item-highlight'>\1</span>", original_text)
+        highlighted_text = pattern.sub(r"<span class='autocomplete-item-highlight'>\1</span>", original_text)
+        return {
+            "raw_text": original_text,
+            "highlighted_html": highlighted_text
+        }
     except Exception:
-        return original_text
+        return {
+            "raw_text": original_text
+        }
 
 class AutoSuggestEngine:
     def __init__(self, database: List[Union[str, Tuple[str]]]):
