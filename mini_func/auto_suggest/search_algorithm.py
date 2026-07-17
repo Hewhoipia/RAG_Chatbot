@@ -14,43 +14,47 @@ def remove_vietnamese_accents(s: str) -> str:
     s = re.sub(r'[đ]', 'd', s)
     return s
 
-def fuzzy_sequence_match(original_text: str, query: str) -> bool:
-    """
-    Kiểm tra xem chuỗi query có khớp mờ với original_text hay không.
-    - Gõ không dấu: Bắt mọi từ có dấu.
-    - Gõ có dấu: Yêu cầu khớp chính xác dấu.
-    """
-    # CHÚ Ý: Lột MỌI khoảng trắng, đưa về chữ thường, nhưng GIỮ NGUYÊN DẤU
-    text_no_spaces = original_text.replace(" ", "").lower()
-    query_no_spaces = query.replace(" ", "").lower()
-    
-    if not query_no_spaces:
-        return False
-
+def _match_single_token(text_lower: str, token_lower: str) -> bool:
+    """Hàm phụ trợ: Dò tìm 1 token duy nhất trong chuỗi gốc"""
     text_idx = 0
     query_idx = 0
     
-    while text_idx < len(text_no_spaces) and query_idx < len(query_no_spaces):
-        char_t = text_no_spaces[text_idx]
-        char_q = query_no_spaces[query_idx]
+    while text_idx < len(text_lower) and query_idx < len(token_lower):
+        char_t = text_lower[text_idx]
+        char_q = token_lower[query_idx]
         
-        # LOGIC CỐT LÕI MỚI:
-        # Điều kiện 1 (char_t == char_q): Khớp chính xác (Cùng có dấu hoặc cùng không dấu).
-        # Điều kiện 2: Ký tự gốc lột dấu đi thì giống với ký tự người dùng gõ.
         is_match = (char_t == char_q) or (remove_vietnamese_accents(char_t) == char_q)
         
         if is_match:
             query_idx += 1
         else:
             query_idx = 0 
-            # Bắt đầu lại nếu ký tự hiện tại khớp với ký tự đầu của query
-            char_q0 = query_no_spaces[0]
+            char_q0 = token_lower[0]
             if (char_t == char_q0) or (remove_vietnamese_accents(char_t) == char_q0):
                 query_idx = 1
                 
         text_idx += 1
         
-    return query_idx == len(query_no_spaces)
+    return query_idx == len(token_lower)
+
+def fuzzy_sequence_match(original_text: str, query: str) -> bool:
+    """
+    Kiểm tra xem TẤT CẢ các từ trong query có xuất hiện trong original_text không.
+    Cho phép đảo vị trí từ (vd: "mới vay" = "vay mới")
+    """
+    query_tokens = query.split() # Tách từ khóa thành mảng ["mới", "vay"]
+    if not query_tokens:
+        return False
+
+    text_lower = original_text.lower()
+
+    # Kiểm tra từng token, nếu có 1 token không tồn tại -> Loại ngay câu này
+    for token in query_tokens:
+        token_lower = token.lower()
+        if not _match_single_token(text_lower, token_lower):
+            return False
+            
+    return True
 
 # Bản đồ ánh xạ ký tự không dấu sang bộ ký tự có dấu (Regex)
 CHAR_MAP = {
@@ -63,74 +67,152 @@ CHAR_MAP = {
     'd': '[dđ]'
 }
 
-def fuzzy_highlight(original_text: str, query: str) -> str:
-    """Highlight bỏ qua khoảng trắng nhưng giữ nguyên dấu và định dạng gốc"""
-    # Vẫn giữ nguyên dấu của query để phân tích
-    query_no_spaces = query.replace(" ", "").lower()
-    if not query_no_spaces:
-        return original_text
+def fuzzy_highlight(original_text: str, query: str) -> dict:
+    """Highlight nhiều từ khóa rời rạc, không phân biệt thứ tự"""
+    query_tokens = query.split()
+    if not query_tokens:
+        return {"raw_text": original_text}
         
-    regex_parts = []
+    patterns = []
     
-    for char in query_no_spaces:
-        unaccented_char = remove_vietnamese_accents(char)
-        
-        # NẾU GÕ KHÔNG DẤU (char == unaccented_char) -> Bung Regex để highlight tất cả biến thể
-        if char == unaccented_char and char in CHAR_MAP:
-            regex_parts.append(CHAR_MAP[char])
+    # Xây dựng regex cho TỪNG từ khóa
+    for token in query_tokens:
+        token_no_spaces = token.lower()
+        regex_parts = []
+        for char in token_no_spaces:
+            unaccented_char = remove_vietnamese_accents(char)
+            if char == unaccented_char and char in CHAR_MAP:
+                regex_parts.append(CHAR_MAP[char])
+            else:
+                regex_parts.append(re.escape(char))
+        patterns.append(r''.join(regex_parts))
             
-        # NẾU GÕ CÓ DẤU (Ví dụ 'ẻ', 'đ') -> Khóa Regex, bắt buộc highlight chính xác ký tự đó
-        else:
-            regex_parts.append(re.escape(char))
-            
-    # Nối các ký tự lại, cho phép có khoảng trắng xen giữa
-    pattern_str = r'\s*'.join(regex_parts)
+    # Nối tất cả các chuỗi regex bằng toán tử OR (|)
+    # VD: (v\s*a\s*y) | (m\s*ớ\s*i)
+    combined_pattern_str = '|'.join(f"({p})" for p in patterns)
     
     try:
-        pattern = re.compile(f"({pattern_str})", re.IGNORECASE)
-        highlighted_text = pattern.sub(r"<span class='autocomplete-item-highlight'>\1</span>", original_text)
+        pattern = re.compile(combined_pattern_str, re.IGNORECASE)
+        # Sử dụng lambda để bọc span chính xác cho group vừa match được
+        highlighted_text = pattern.sub(
+            lambda m: f"<span class='autocomplete-item-highlight'>{m.group(0)}</span>", 
+            original_text
+        )
         return {
             "raw_text": original_text,
             "highlighted_html": highlighted_text
         }
     except Exception:
-        return {
-            "raw_text": original_text
-        }
+        return {"raw_text": original_text}
+
+INTENT_STOPWORDS = [
+    # Nhóm hỏi đáp, tìm kiếm giải pháp (How-to / What / Why)
+    "hướng dẫn", "cách", "làm sao để", "làm thế nào", "làm sao", "cách để",
+    "như thế nào", "ở đâu", "khi nào", "tại sao", "vì sao", "thế nào", "như nào",
+    
+    # Nhóm thủ tục, văn bản (Process / Documentation)
+    "quy trình", "thủ tục", "các bước", "quy định", "chính sách", 
+    "phương pháp", "điều kiện", "chi tiết", "cụ thể", "thông tin", 
+    "tài liệu", "biểu mẫu", "form mẫu",
+
+    # Nhóm từ xưng hô, lịch sự, yêu cầu (Request / Politeness)
+    "cho tôi hỏi", "cho mình hỏi", "xin hỏi", "hỏi về", "tôi muốn", "bạn", "bạn ơi",
+    "mình muốn", "tôi cần", "mình cần", "cần hỗ trợ", "hỗ trợ giúp", 
+    "giúp tôi", "tư vấn giúp", "xin cấp", "yêu cầu", "xin", "cho xin",
+
+    # Nhóm động từ mang tính chất giải quyết sự cố (Action Fillers)
+    "xử lý", "khắc phục", "giải quyết", "sửa lỗi", "cài đặt", 
+    "thiết lập", "cấu hình", "kiểm tra", "tra cứu",
+
+    # Nhóm từ nối, từ đệm chỉ hoàn cảnh (Context Wrappers)
+    "về việc", "liên quan đến", "về vấn đề", "trường hợp",
+    "trong trường hợp", "khi bị", "nếu bị", "do bị", "bị"
+]
 
 class AutoSuggestEngine:
     def __init__(self, database: List[Union[str, Tuple[str]]]):
-        self.database = database
+        # Nạp dữ liệu qua một hàm tiền xử lý thay vì gán trực tiếp
+        self.database = self._preprocess_database(database)
         
+        # Danh sách các từ nhiễu không mang giá trị tìm kiếm cốt lõi
+        self.intent_stopwords = INTENT_STOPWORDS
+        
+    def _capitalize_first_letter(self, text: str) -> str:
+        """Viết hoa chữ cái đầu, giữ nguyên định dạng của phần còn lại"""
+        text = str(text).strip()
+        if not text:
+            return text
+        # Lấy ký tự đầu viết hoa + toàn bộ chuỗi từ ký tự thứ 2 trở đi
+        return text[0].upper() + text[1:]
+
+    def _preprocess_database(self, raw_db: List[Union[str, Tuple[str]]]) -> List[Union[str, Tuple[str]]]:
+        """Tiền xử lý toàn bộ database trước khi lưu vào RAM"""
+        processed_db = []
+        for item in raw_db:
+            if isinstance(item, tuple):
+                # Bóc tuple ra, xử lý text, rồi đóng gói lại thành tuple
+                clean_text = self._capitalize_first_letter(item[0])
+                processed_db.append((clean_text,))
+            else:
+                # Nếu là string bình thường
+                clean_text = self._capitalize_first_letter(item)
+                processed_db.append(clean_text)
+                
+        return processed_db
+    
+    def _normalize_query(self, query: str) -> str:
+        """Hàm lột bỏ các từ nhiễu để trích xuất core intent"""
+        normalized = query.lower()
+        # Thay thế các từ stopword bằng khoảng trắng
+        for word in self.intent_stopwords:
+            # Dùng regex để xóa nguyên cụm từ (tránh xóa nhầm chữ cái bên trong từ khác)
+            normalized = re.sub(r'\b' + word + r'\b', ' ', normalized)
+        
+        # Xóa các khoảng trắng thừa sau khi lột từ
+        return ' '.join(normalized.split())
+    
     def _calculate_score(self, original_text: str, query: str) -> int:
         """Hàm chấm điểm độ ưu tiên của từ khóa"""
         text_unaccented = remove_vietnamese_accents(original_text).lower()
-        query_unaccented = remove_vietnamese_accents(query).lower()
+        query_unaccented = remove_vietnamese_accents(query).strip().lower()
         
-        # MỨC 1 (100 ĐIỂM): Khớp nguyên từ (Word Boundary)
-        # VD: Gõ "atm" -> Khớp đúng chữ "ATM" đứng độc lập trong "ATM là gì"
+        # MỨC 1 (100 ĐIỂM): Khớp nguyên cụm dính liền (Word Boundary)
+        # VD: Gõ "vay mới" -> Bắt đúng cụm "vay mới"
         if re.search(r'\b' + re.escape(query_unaccented) + r'\b', text_unaccented):
             return 100
             
-        # MỨC 2 (80 ĐIỂM): Khớp chuỗi liên tục (Nằm bên trong một từ khác)
-        # VD: Gõ "atm" -> Khớp chữ "Batman" (nếu có)
+        # MỨC 2 (80 ĐIỂM): Khớp chuỗi liên tục (Đúng thứ tự, nằm trong từ khác)
         if query_unaccented in text_unaccented:
             return 80
             
-        # MỨC 3 (50 ĐIỂM): Khớp xuyên khoảng trắng (Fuzzy match)
-        # VD: Gõ "atm" -> Khớp "đặt máy" (dat may -> datmay)
-        return 50    
+        query_tokens = query_unaccented.split()
+        
+        # MỨC 3 (70 ĐIỂM): Đảo vị trí nhưng khớp nguyên các từ độc lập
+        # VD: Gõ "mới vay" -> Tìm thấy chữ "mới" và chữ "vay" tách rời trong câu
+        all_tokens_as_words = all(re.search(r'\b' + re.escape(t) + r'\b', text_unaccented) for t in query_tokens)
+        if all_tokens_as_words:
+            return 70
+            
+        # MỨC 4 (50 ĐIỂM): Khớp xuyên khoảng trắng hoặc đảo lộn vị trí từ
+        return 50 
     
     def search(self, query: str, limit: int = 5) -> List[str]:
         try:
+            # Tiền xử lý (Pre-process) câu gõ của người dùng
+            # "hướng dẫn tính lãi suất" -> sẽ biến thành "tính lãi suất"
+            cleaned_query = self._normalize_query(query)
+            # Nếu lột sạch không còn chữ nào (VD user gõ mỗi chữ "cách"), thì dùng lại query gốc
+            if not cleaned_query:
+                cleaned_query = query
             # Khởi tạo mảng lưu kết quả kèm điểm số
             scored_results = []
             for faq in self.database:
                 faq = faq[0] if isinstance(faq, tuple) else faq
                 faq = str(faq)
-                if fuzzy_sequence_match(faq, query):
+                # Đưa cleaned_query vào thuật toán dò tìm
+                if fuzzy_sequence_match(faq, cleaned_query):
                     # Nếu khớp, tính điểm của câu này
-                    score = self._calculate_score(faq, query)
+                    score = self._calculate_score(faq, cleaned_query)
                     scored_results.append((score, faq))
                     
             # BƯỚC QUAN TRỌNG: Sắp xếp mảng theo điểm số (giảm dần) 

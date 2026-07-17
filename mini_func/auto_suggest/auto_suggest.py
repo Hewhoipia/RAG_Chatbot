@@ -4,15 +4,19 @@ from mini_func.auto_suggest.search_algorithm import AutoSuggestEngine
 from mini_func.auto_suggest import faq_database
 import logging
 import re
+import os
 logger = logging.getLogger(__name__)
 
 # DỮ LIỆU ĐƯỢC LOAD SẴN VÀO RAM KHI SERVER KHỞI ĐỘNG
 # Trong thực tế, bạn có thể load list này từ Database khi chạy app
-
-
-FAQ_DATABASE = faq_database.FAQ_DATABASE
-
+#FAQ_DATABASE = faq_database.FAQ_DATABASE
 try:
+    # Read the file and format it into a list of tuples
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir, 'FAQ_DATABASE.txt')
+    with open(file_path, 'r', encoding='utf-8') as file:
+        # line.strip() removes the '\n' and any extra whitespace at the ends
+        FAQ_DATABASE = [(line.strip(),) for line in file if line.strip()]
     engine = AutoSuggestEngine(FAQ_DATABASE)
 except Exception as e:
     #logger.error (f"[AutoSuggest] engine cannot start")
