@@ -1,53 +1,45 @@
 import asyncio
+import logging
+import os
 from typing import List
 from mini_func.auto_suggest.search_algorithm import AutoSuggestEngine
-from mini_func.auto_suggest import faq_database
-import logging
-import re
-import os
+
 logger = logging.getLogger(__name__)
 
-# DỮ LIỆU ĐƯỢC LOAD SẴN VÀO RAM KHI SERVER KHỞI ĐỘNG
-# Trong thực tế, bạn có thể load list này từ Database khi chạy app
-#FAQ_DATABASE = faq_database.FAQ_DATABASE
+# Dữ liệu được load sẵn vào ram khi server khởi động
+# Trong thực tế hoàn toàn có thể load list FAQ từ Database khi chạy
 try:
-    # Read the file and format it into a list of tuples
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, 'FAQ_DATABASE.txt')
     with open(file_path, 'r', encoding='utf-8') as file:
-        # line.strip() removes the '\n' and any extra whitespace at the ends
         FAQ_DATABASE = [(line.strip(),) for line in file if line.strip()]
+    # tạo engine
     engine = AutoSuggestEngine(FAQ_DATABASE)
 except Exception as e:
-    #logger.error (f"[AutoSuggest] engine cannot start")
-    print ("[AutoSuggest] cannot start engine:", e)
+    logger.error(f"[AutoSuggest] cannot start engine:", e)
 
-# HÀM XỬ LÝ LOGIC TÌM KIẾM ĐỘC LẬP (Tối ưu tốc độ)
+# Hàm xử lý logic tìm kiếm
 async def get_autocomplete_suggestions(query: str, limit: int = 5) -> List[str]:
     """
-    Hàm xử lý logic tìm kiếm các câu hỏi chứa keyword.
-    Sử dụng List Comprehension của Python để có tốc độ duyệt mảng C-level nhanh nhất.
+    Hàm xử lý logic tìm kiếm các câu hỏi chứa keyword hoặc chứa ký tự liên quan
+    Đầu vào: query: từ front-end -> fastapi -> here
+            limit: số lượng kết quả hiển thị trong menu dropdown, mặc định 5
+    Đầu ra: kết quả search với số lượng 'limit'
     """
     try:
         if not query.strip():
             return []
-        
-        # Tìm tất cả các câu có chứa cụm từ người dùng đang gõ
+        # gọi hàm tìm kiếm
         results = engine.search(query, limit)
-        
-        # Trả về tối đa 1-5 câu
         return results
     except Exception as e:
-        #logger.error (f"[AutoSuggest] auto_suggest error: {e}")
-        print ("[AutoSuggest] error at:", e)
+        logger.error (f"[AutoSuggest] auto_suggest error: {e}")
         return []
 
 async def run_test():
-    search1 = await get_autocomplete_suggestions("mật")
-    print(search1)
-    search2 = await get_autocomplete_suggestions("lỗi")
-    print(search2)
-
+    search1 = await get_autocomplete_suggestions("e mai l")
+    print(f"Kết quả search: {search1}")
+    search2 = await get_autocomplete_suggestions("a tm")
+    print(f"Kết quả search: {search2}")
 if __name__ == "__main__":
-    # Instead of just calling run_test(), use asyncio.run()
     asyncio.run(run_test())
