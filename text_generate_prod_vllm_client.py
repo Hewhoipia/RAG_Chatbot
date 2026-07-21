@@ -64,7 +64,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync"
 # OpenAI-compatible client library (calls local vLLM server, NOT OpenAI cloud)
 from openai import AsyncOpenAI
 
-from config_v7 import config
+from config import config
 
 logger = logging.getLogger(__name__)
 
