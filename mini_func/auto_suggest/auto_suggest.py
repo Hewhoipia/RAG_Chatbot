@@ -11,12 +11,21 @@ logger = logging.getLogger(__name__)
 try:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, 'FAQ_DATABASE.txt')
-    with open(file_path, 'r', encoding='utf-8') as file:
-        FAQ_DATABASE = [(line.strip(),) for line in file if line.strip()]
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as file:
+            FAQ_DATABASE = [(line.strip(),) for line in file if line.strip()]
+    else:
+        from mini_func.auto_suggest.faq_database import FAQ_DATABASE as py_faq
+        FAQ_DATABASE = [(item,) if isinstance(item, str) else item for item in py_faq]
     # tạo engine
     engine = AutoSuggestEngine(FAQ_DATABASE)
 except Exception as e:
-    logger.error(f"[AutoSuggest] cannot start engine:", e)
+    logger.error(f"[AutoSuggest] cannot start engine: {e}")
+    # Fallback dummy engine to prevent server crash
+    try:
+        engine = AutoSuggestEngine([("Lãi suất gửi tiết kiệm",), ("Thủ tục làm thẻ tín dụng",)])
+    except Exception:
+        engine = None
 
 # Hàm xử lý logic tìm kiếm
 async def get_autocomplete_suggestions(query: str, limit: int = 5) -> List[str]:

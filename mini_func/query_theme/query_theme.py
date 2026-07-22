@@ -9,7 +9,10 @@ import json
 import re
 from typing import List
 
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
 
 # ---------------------------------------------------------------------------
 # 14 Banking Categories
@@ -95,6 +98,21 @@ Lưu ý: cần viết lại back-end chỉ lấy phần JSON array của "catego
 # ---------------------------------------------------------------------------
 async def query_theme(query: str, model_name: str = "Qwen3.5-4B") -> List[str]:
     """Trả về list các banking categories liên quan đến câu query."""
+    from config import config
+    if config.demo_mode:
+        query_lower = query.lower()
+        if any(kw in query_lower for kw in ["interest", "rate", "deposit", "lãi suất", "tiết kiệm", "gửi"]):
+            return ["Deposit"]
+        elif any(kw in query_lower for kw in ["card", "limit", "fee", "thẻ", "hạn mức", "phí"]):
+            return ["Card"]
+        elif any(kw in query_lower for kw in ["loan", "mortgage", "vay", "thế chấp", "tín chấp"]):
+            return ["Loan"]
+        elif any(kw in query_lower for kw in ["vpn", "password", "wifi", "printer", "jira", "it", "mật khẩu", "máy in"]):
+            return ["IT"]
+        elif any(kw in query_lower for kw in ["hello", "xin chào", "hi ", "hôm nay"]):
+            return []  # chit-chat
+        return ["Deposit"]  # Default category to trigger RAG
+
     client = AsyncOpenAI(base_url="http://localhost:8011/v1", api_key="EMPTY", timeout=30.0)
 
     response = await client.chat.completions.create(

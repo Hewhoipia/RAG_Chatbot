@@ -1,27 +1,33 @@
 """
 FILE: config.py
-Giới thiệu:
--File cấu hình cho RAG
+GIỚI THIỆU (Introduction):
+- File cấu hình cho RAG pipeline, hỗ trợ chế độ demo ngoại tuyến (offline demo mode).
 
-Mục đích:
-- Tập trung tất cả cấu hình vào 1 class duy nhất
-- Tối ưu cho Qwen 3.5-4B với vLLM Text-Only mode
-- Hỗ trợ thinking mode cho suy luận phứt tạp
+MỤC ĐÍCH (Purpose):
+- Tập trung tất cả cấu hình vào 1 class duy nhất.
+- Tối ưu cho Qwen 3.5-4B với vLLM Text-Only mode.
+- Hỗ trợ thinking mode cho suy luận phức tạp.
 
-Cách thức vận hành:
+CÁCH THỨC VẬN HÀNH (How it works):
 - import from config import config
 - Truy cập: config.vllm.model_name, config.qwen3.enable_thinking
-- Override qua .env file hoặc environment variables:
-    + RAG_VLLM_MODEL_NAME=Qwen3.5-4B
-    + RAG_QWEN3_ENABLE_THINKING=false
+- Override qua .env file hoặc environment variables.
 
-Lưu ý:
-- Model: Qwen3.5-4B
-- Model Dir: models/Qwen3.5-4B
-- GPU Memory: 55% (dành VRAM cho KV cache nhờ bỏ vision encoder)
-- max_num_seqs: 25
-- Sampling: temp 0.7, top-p 0.8, top-k 20 (non-thinking mode)
-- Presnece Penalty: 1.5
+LỚP CẤU HÌNH & THUỘC TÍNH ĐÃ TRIỂN KHAI (Implemented Classes & Properties):
+- get_env, get_env_bool, get_env_int, get_env_float: Trích xuất và định kiểu các biến môi trường RAG_.
+- Qwen3Config: Quản lý các cấu hình suy luận (thinking/non-thinking modes), nhiệt độ, top_p, top_k, presence_penalty và trả về sampling parameters qua get_sampling_params().
+- QueryAnalysisConfig: Điều phối tham số multi-query rewrite, phân rã (decomposition), step-back và reciprocal rank fusion.
+- ConcurrencyConfig: Quản lý kích thước luồng xử lý của reranker pool.
+- DatabaseConfig: Tham số host, port, thông tin đăng nhập PostgreSQL, kích thước connection pool, và thuộc tính động dsn.
+- VLLMConfig: Cấu hình địa chỉ cơ sở base_url và tên mô hình model_name cho vLLM server.
+- CacheConfig: Cấu hình thư mục lưu trữ cache LanceDB và ngưỡng tương đồng.
+- RetrievalConfig: Thư mục chứa tài liệu, số lượng top_k, top_pick và kích thước context window.
+- QdrantConfig: Tham số kết nối Vector database Qdrant.
+- RedisConfig: Cấu hình Redis cache.
+- RerankerConfig: Tham số kích hoạt reranker model.
+- ResilienceConfig: Cấu hình circuit breaker failure threshold và recovery timeout.
+- ServerConfig: Tham số uvicorn host/port, bật/tắt rate limiter, max concurrent requests.
+- Config: Lớp tổng hợp chứa toàn bộ cấu hình con, hỗ trợ thuộc tính demo_mode (mặc định True) và hàm print_config() để in báo cáo.
 """
 
 import os
@@ -136,13 +142,20 @@ class ConcurrencyConfig:
 class DatabaseConfig:
     """_summary_
     """
-    enabled: bool = field(default_factory=lambda: os.getenv("POSTGRES_ENABLED", "true").lower() in ("true", "1", "yes"))
-    # continue
+    enabled: bool = field(default_factory=lambda: get_env_bool("POSTGRES_ENABLED", True))
+    host: str = field(default_factory=lambda: get_env("DB_HOST", "localhost"))
+    port: int = field(default_factory=lambda: get_env_int("DB_PORT", 5432))
+    user: str = field(default_factory=lambda: get_env("DB_USER", "postgres"))
+    password: str = field(default_factory=lambda: get_env("DB_PASSWORD", "postgres"))
+    database: str = field(default_factory=lambda: get_env("DB_DATABASE", "rag_chatbot"))
+    min_size: int = field(default_factory=lambda: get_env_int("DB_MIN_SIZE", 5))
+    max_size: int = field(default_factory=lambda: get_env_int("DB_MAX_SIZE", 20))
+
     @property
-    def dsn (self) -> str:
+    def dsn(self) -> str:
         """_summary_
         """
-        return f"postgresql"
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 # VLLM SERVER CONFIGURATION
 @dataclass
@@ -158,7 +171,10 @@ class VLLMConfig:
     - model_name phải match với --served-model-name trong vllm_server_llm.sh
     - GPU Mem: 55%
     """
-    # continue
+    base_url: str = field(default_factory=lambda: get_env("VLLM_BASE_URL", "http://localhost:8011/v1"))
+    model_name: str = field(default_factory=lambda: get_env("VLLM_MODEL_NAME", "Qwen3.5-4B"))
+    gpu_memory_utilization: float = field(default_factory=lambda: get_env_float("VLLM_GPU_MEMORY_UTILIZATION", 0.55))
+    max_num_seqs: int = field(default_factory=lambda: get_env_int("VLLM_MAX_NUM_SEQS", 25))
     
 # CACHE CONFIG
 @dataclass
@@ -174,7 +190,10 @@ class CacheConfig:
     Lưu ý:
     - Sử dụng LanceDB lưu trữ nội bộ
     """
-    # continue
+    enabled: bool = field(default_factory=lambda: get_env_bool("CACHE_ENABLED", True))
+    persist_dir: str = field(default_factory=lambda: get_env("CACHE_PERSIST_DIR", "cache/lancedb"))
+    similarity_threshold: float = field(default_factory=lambda: get_env_float("CACHE_SIMILARITY_THRESHOLD", 0.95))
+    embedding_model: str = field(default_factory=lambda: get_env("CACHE_EMBEDDING_MODEL", "BAAI/bge-m3"))
     
 # RETRIEVAL CONFIG
 @dataclass
@@ -182,7 +201,11 @@ class RetrievalConfig:
     """
     Cấu hình cho RAG retrieval pipeline
     """
-    # continue
+    data_dir: str = field(default_factory=lambda: get_env("RETRIEVAL_DATA_DIR", "data"))
+    top_k: int = field(default_factory=lambda: get_env_int("RETRIEVAL_TOP_K", 10))
+    top_pick: int = field(default_factory=lambda: get_env_int("RETRIEVAL_TOP_PICK", 3))
+    backward_context_window: int = field(default_factory=lambda: get_env_int("RETRIEVAL_BACKWARD_CONTEXT", 2))
+    forward_context_window: int = field(default_factory=lambda: get_env_int("RETRIEVAL_FORWARD_CONTEXT", 2))
 
 # QDRANT VECTOR DATABASE CONFIG
 @dataclass
@@ -191,7 +214,9 @@ class QdrantConfig:
     Cấu hình Qdrant vector database
     thay thế FAISS cho vector storage với full CRUD support
     """
-    # continue
+    host: str = field(default_factory=lambda: get_env("QDRANT_HOST", "localhost"))
+    port: int = field(default_factory=lambda: get_env_int("QDRANT_PORT", 6333))
+    collection_name: str = field(default_factory=lambda: get_env("QDRANT_COLLECTION", "banking_docs"))
     
 # REDIS CONFIG
 @dataclass
@@ -199,14 +224,18 @@ class RedisConfig:
     """
     cấu hình cho Redis semantic cache
     """
-    # continue
+    enabled: bool = field(default_factory=lambda: get_env_bool("REDIS_ENABLED", True))
+    host: str = field(default_factory=lambda: get_env("REDIS_HOST", "localhost"))
+    port: int = field(default_factory=lambda: get_env_int("REDIS_PORT", 6379))
+    db: int = field(default_factory=lambda: get_env_int("REDIS_DB", 0))
     
 # RERANKER CONFIG
 @dataclass
 class RerankerConfig:
     """_summary_
     """
-    # continue
+    model_name: str = field(default_factory=lambda: get_env("RERANKER_MODEL", "BAAI/bge-reranker-large"))
+    enabled: bool = field(default_factory=lambda: get_env_bool("RERANKER_ENABLED", True))
     
 # RESILIENCE CONFIG
 @dataclass
@@ -214,7 +243,8 @@ class ResilienceConfig:
     """
     Cấu hình cho Circuit Breaker và Graceful Degradation
     """
-    # continue
+    circuit_breaker_failure_threshold: int = field(default_factory=lambda: get_env_int("CIRCUIT_BREAKER_FAILURES", 5))
+    circuit_breaker_recovery_timeout: float = field(default_factory=lambda: get_env_float("CIRCUIT_BREAKER_RECOVERY", 30.0))
     
 # SERVER CONFIG
 @dataclass
@@ -229,7 +259,12 @@ class ServerConfig:
     
     Lưu ý: max_concurrent_requests tăng lên 25 (MoE xử lý nhanh hơn dense model)
     """
-    # continue
+    host: str = field(default_factory=lambda: get_env("SERVER_HOST", "0.0.0.0"))
+    port: int = field(default_factory=lambda: get_env_int("SERVER_PORT", 8010))
+    rate_limit_enabled: bool = field(default_factory=lambda: get_env_bool("RATE_LIMIT_ENABLED", True))
+    rate_limit_capacity: int = field(default_factory=lambda: get_env_int("RATE_LIMIT_CAPACITY", 10))
+    rate_limit_fill_rate: float = field(default_factory=lambda: get_env_float("RATE_LIMIT_FILL_RATE", 1.0))
+    max_concurrent_requests: int = field(default_factory=lambda: get_env_int("MAX_CONCURRENT_REQUESTS", 25))
     
 # MAIN CONFIG
 @dataclass
@@ -253,12 +288,27 @@ class Config:
     """
     
     qwen3: Qwen3Config = field(default_factory=Qwen3Config)
-    
-    #continue
+    query_analysis: QueryAnalysisConfig = field(default_factory=QueryAnalysisConfig)
+    concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    vllm: VLLMConfig = field(default_factory=VLLMConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+    retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    qdrant: QdrantConfig = field(default_factory=QdrantConfig)
+    redis: RedisConfig = field(default_factory=RedisConfig)
+    reranker: RerankerConfig = field(default_factory=RerankerConfig)
+    resilience: ResilienceConfig = field(default_factory=ResilienceConfig)
+    server: ServerConfig = field(default_factory=ServerConfig)
+    demo_mode: bool = field(default_factory=lambda: get_env_bool("DEMO_MODE", True))
     
     def print_config(self):
         """ in ra tất cả settings """
-        # continue
+        print("=== RAG CHATBOT CONFIGURATION ===")
+        print(f"Demo Mode: {self.demo_mode}")
+        print(f"Database DSN: {self.database.dsn} (Enabled: {self.database.enabled})")
+        print(f"vLLM URL: {self.vllm.base_url} | Model: {self.vllm.model_name}")
+        print(f"Thinking Mode Default: {self.qwen3.enable_thinking}")
+        print(f"Server Host/Port: {self.server.host}:{self.server.port}")
         
 config = Config()
 

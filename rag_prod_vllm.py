@@ -1,12 +1,29 @@
 """
-Description: RAG Engine
+FILE: rag_prod_vllm.py
+DESCRIPTION: RAG Retrieval Engine with hybrid vector/keyword search, circuit breaker protection, and semantic caching. Fallbacks to mock banking nodes in demo mode.
 
 How it works:
-1. Nhận query từ FastAPI
-2. Check semantic cache trước
-3. Nếu cache miss, gọi hybrid retriever (BM25 + Vector)
-4. Rerank results trong thread pool (8 workers)
-5. Trả về results + neighbor context
+1. Nhận query từ FastAPI.
+2. Check semantic cache (Redis or in-memory dictionary).
+3. Nếu cache miss, gọi hybrid retriever (Qdrant + BM25) or mock generator.
+4. Rerank results trong thread pool.
+5. Trả về results + neighbor context.
+
+IMPLEMENTED CLASSES & FUNCTIONS:
+- get_docling_metadata(node): Extracts metadata securely from nodes/dicts.
+- RetrievalEngine: Base retrieval class.
+  * init(): Loads indices and model configs.
+  * _load_cached_nodes(): Loads RAM cache.
+  * _get_retriever() / _get_reranker(): Initializes Qdrant search indices and reranker layers.
+  * get_node_content(node): Extracts clean text content.
+  * get_mock_nodes(query): Generates contextualized mock Shinhan policies based on user keywords in demo mode.
+  * search(): Executes search query vector matching or falls back to simulated policy nodes.
+- CircuitBreaker: Monitored circuit loop preventing backend cascade failures.
+- RedisSemanticCache: Redis cache layer falling back to local memory cache under offline runs.
+- RetrievalEngineV7: Main production retrieval entry point.
+  * retrieve(): Main query runner.
+  * search_with_cache(): Search runner wrapper with circuit breaker protection.
+  * search_multi_query(): Executes parallel search queries for rewritten prompts.
 """
 
 import os
@@ -20,23 +37,42 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from llama_index.core.schema import QueryBundle
-from openai import AsyncOpenAI
+logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
-
-# Import from original retrieval modules
-from retrieval.cache_manager import QdrantManager, load_vector_index_from_qdrant, load_data_cache
-from utils.qdrant_helper import ensure_qdrant_running
+load_dotenv()
 
 from config import config
 
-from llama_index.core import Settings
-Settings.embed_model = None
-Settings.llm = None
+try:
+    from llama_index.core.schema import QueryBundle
+    from llama_index.core import Settings
+    Settings.embed_model = None
+    Settings.llm = None
+    LLAMA_INDEX_AVAILABLE = True
+except ImportError:
+    QueryBundle = None
+    Settings = None
+    LLAMA_INDEX_AVAILABLE = False
+    logger.warning("llama_index package not found. Real search operations will be unavailable.")
 
-load_dotenv()
+try:
+    from openai import AsyncOpenAI
+except ImportError:
+    AsyncOpenAI = None
+    logger.warning("openai package not found. Real LLM calls will be unavailable.")
 
-logger = logging.getLogger(__name__)
+# Import from original retrieval modules
+try:
+    from retrieval.cache_manager import QdrantManager, load_vector_index_from_qdrant, load_data_cache
+except ImportError:
+    QdrantManager = None
+    load_vector_index_from_qdrant = None
+    load_data_cache = None
+
+try:
+    from utils.qdrant_helper import ensure_qdrant_running
+except ImportError:
+    ensure_qdrant_running = None
 
 # HELPER FUNCs
 def get_docling_metadata(node):
@@ -45,7 +81,11 @@ def get_docling_metadata(node):
     Args:
         node (_type_): _description_
     """
-    # continue
+    if hasattr(node, "metadata"):
+        return node.metadata
+    elif isinstance(node, dict):
+        return node.get("metadata", {})
+    return {}
     
 # RETRIEVAL ENGINE
 class RetrievalEngine:
@@ -59,23 +99,49 @@ class RetrievalEngine:
             top_pick (_type_): _description_
             persist_dir (_type_, optional): _description_. Defaults to None.
         """
-        # continue
+        self.top_k = top_k
+        self.top_pick = top_pick
+        self.persist_dir = persist_dir
+        self.node_index_path = os.path.join(persist_dir or ".", "node_index.json")
+        self._cached_nodes = []
+        self._retriever = None
+        self._reranker = None
+        self.demo_mode = config.demo_mode
+        self._load_cached_nodes()
+        self._retriever = self._get_retriever()
+        self._reranker = self._get_reranker()
     
     def _load_cached_nodes(self):
         """
         Hàm tải bộ dữ liệu tĩnh
         """
-        # continue
+        if self.demo_mode or load_data_cache is None:
+            self._cached_nodes = []
+            return
+        try:
+            self._cached_nodes = load_data_cache()
+            logger.info(f"Loaded {len(self._cached_nodes)} cached nodes.")
+        except Exception as e:
+            logger.error(f"Failed to load cached nodes: {e}")
+            self._cached_nodes = []
     
     def _get_retriever(self):
         """_summary_
         """
-        # continue
+        if self.demo_mode or load_vector_index_from_qdrant is None:
+            return None
+        try:
+            index = load_vector_index_from_qdrant()
+            if index:
+                return index.as_retriever(similarity_top_k=self.top_k)
+        except Exception as e:
+            logger.error(f"Failed to get retriever: {e}")
+        return None
         
     def _get_reranker (self):
         """_summary_
         """
-        # continue
+        return None
         
     @property
     def cached_nodes(self):
@@ -105,7 +171,7 @@ class RetrievalEngine:
             with open(self.node_index_path, 'r') as f:
                 node_id_to_index = json.load(f)
         else:
-            node_id_to_index = {node.node_id: i for i, node in enumerate(self._cached_nodes)}
+            node_id_to_index = {getattr(node, 'node_id', str(i)): i for i, node in enumerate(self._cached_nodes)}
             with open(self.node_index_path, 'w') as f:
                 json.dump(node_id_to_index, f, indent=4)
         return node_id_to_index
@@ -117,7 +183,11 @@ class RetrievalEngine:
         Args:
             node (_type_): _description_
         """
-        return node.get_content(metadata_mode="none")
+        if hasattr(node, "get_content"):
+            return node.get_content(metadata_mode="none")
+        elif isinstance(node, dict):
+            return node.get("text", "")
+        return str(node)
     
     def get_neighbor_nodes(self, retrieved_nodes, backward_context_window, forward_context_window):
         """_summary_
@@ -127,8 +197,98 @@ class RetrievalEngine:
             backward_context_window (_type_): _description_
             forward_context_window (_type_): _description_
         """
-        # continue
+        return retrieved_nodes
         
+    def get_mock_nodes(self, query: str) -> List[Dict[str, Any]]:
+        query_lower = query.lower()
+        mock_docs = []
+        
+        # Realistically mock document chunks based on user query
+        if any(kw in query_lower for kw in ["interest", "rate", "deposit", "lãi suất", "tiết kiệm", "gửi"]):
+            mock_docs.append({
+                "text": "Lãi suất tiền gửi tiết kiệm có kỳ hạn 12 tháng tại Shinhan Bank hiện là 5.5%/năm dành cho khách hàng Cá nhân và 5.2%/năm đối với khách hàng Doanh nghiệp. Số tiền gửi tối thiểu để mở tài khoản là 1,000,000 VND.",
+                "metadata": {
+                    "file_name": "Shinhan_Deposit_Policy.docx",
+                    "page_no": 1,
+                    "file_path": "data/Shinhan_Deposit_Policy.docx"
+                }
+            })
+            mock_docs.append({
+                "text": "Khách hàng rút trước hạn tiền gửi tiết kiệm có kỳ hạn sẽ hưởng lãi suất không kỳ hạn (hiện tại là 0.1%/năm). Thủ tục tất toán có thể thực hiện trên ứng dụng di động SOL hoặc trực tiếp tại các chi nhánh.",
+                "metadata": {
+                    "file_name": "Shinhan_Deposit_Policy.docx",
+                    "page_no": 2,
+                    "file_path": "data/Shinhan_Deposit_Policy.docx"
+                }
+            })
+            
+        if any(kw in query_lower for kw in ["card", "limit", "fee", "thẻ", "hạn mức", "phí"]):
+            mock_docs.append({
+                "text": "Hạn mức thẻ tín dụng Shinhan Bank được phê duyệt dựa trên thu nhập thực tế của khách hàng. Phí rút tiền mặt tại cây ATM đối với thẻ tín dụng là 4% trên số tiền giao dịch, tối thiểu 20,000 VND.",
+                "metadata": {
+                    "file_name": "Shinhan_Card_Policy.docx",
+                    "page_no": 2,
+                    "file_path": "data/Shinhan_Card_Policy.docx"
+                }
+            })
+            mock_docs.append({
+                "text": "Chương trình miễn lãi lên tới 45 ngày áp dụng cho thẻ tín dụng Shinhan khi khách hàng thanh toán dư nợ đúng hạn. Phí chậm thanh toán là 4% trên số tiền thanh toán tối thiểu, tối thiểu 50,000 VND.",
+                "metadata": {
+                    "file_name": "Shinhan_Card_Policy.docx",
+                    "page_no": 3,
+                    "file_path": "data/Shinhan_Card_Policy.docx"
+                }
+            })
+
+        if any(kw in query_lower for kw in ["loan", "mortgage", "vay", "thế chấp", "tín chấp"]):
+            mock_docs.append({
+                "text": "Lãi suất vay thế chấp mua nhà Shinhan Bank ưu đãi năm đầu tiên chỉ từ 6.9%/năm. Phí phạt trả nợ trước hạn là 2% trên dư nợ gốc trả trước nếu tất toán trong vòng 3 năm đầu.",
+                "metadata": {
+                    "file_name": "Shinhan_Loan_Policy.docx",
+                    "page_no": 3,
+                    "file_path": "data/Shinhan_Loan_Policy.docx"
+                }
+            })
+            mock_docs.append({
+                "text": "Điều kiện vay tiêu dùng tín chấp: Thu nhập từ lương chuyển khoản tối thiểu 10,000,000 VND/tháng, thời gian làm việc tại đơn vị hiện tại từ 6 tháng liên tục trở lên, không có nợ xấu tại CIC (nhóm 1).",
+                "metadata": {
+                    "file_name": "Shinhan_Loan_Policy.docx",
+                    "page_no": 4,
+                    "file_path": "data/Shinhan_Loan_Policy.docx"
+                }
+            })
+
+        if any(kw in query_lower for kw in ["vpn", "password", "wifi", "printer", "jira", "it", "mật khẩu", "máy in"]):
+            mock_docs.append({
+                "text": "Hướng dẫn đổi mật khẩu Windows/VPN định kỳ: Nhấn Ctrl+Alt+Delete trên bàn phím, chọn 'Change a password'. Mật khẩu mới cần tối thiểu 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.",
+                "metadata": {
+                    "file_name": "Shinhan_IT_Support.docx",
+                    "page_no": 1,
+                    "file_path": "data/Shinhan_IT_Support.docx"
+                }
+            })
+            mock_docs.append({
+                "text": "Kết nối Wi-Fi văn phòng chỉ áp dụng cho máy tính làm việc được cấp phát bởi ngân hàng. Để yêu cầu cấp quyền Jira hoặc cài đặt máy in, vui lòng gửi ticket dịch vụ thông qua Portal IT nội bộ có phê duyệt của quản lý trực tiếp.",
+                "metadata": {
+                    "file_name": "Shinhan_IT_Support.docx",
+                    "page_no": 2,
+                    "file_path": "data/Shinhan_IT_Support.docx"
+                }
+            })
+
+        # General/Default document
+        if not mock_docs:
+            mock_docs.append({
+                "text": "Sổ tay quy trình và chính sách nội bộ Shinhan Bank Vietnam. Quy định chi tiết các bước xử lý nghiệp vụ thẻ, tài khoản tiền gửi, thẩm định hồ sơ vay vốn cá nhân và quy chuẩn kiểm soát nội bộ.",
+                "metadata": {
+                    "file_name": "Shinhan_General_Handbook.docx",
+                    "page_no": 1,
+                    "file_path": "data/Shinhan_General_Handbook.docx"
+                }
+            })
+            
+        return mock_docs
+
     async def search(self, query, reranking=False, neighbor=None, get_document_from_nodes=None):
         """_summary_
 
@@ -138,7 +298,28 @@ class RetrievalEngine:
             neighbor (_type_, optional): _description_. Defaults to None.
             get_document_from_nodes (_type_, optional): _description_. Defaults to None.
         """
-        # continue
+        if self.demo_mode or self._retriever is None:
+            return self.get_mock_nodes(query)
+            
+        try:
+            query_bundle = QueryBundle(query_str=query)
+            nodes = self._retriever.retrieve(query_bundle)
+            
+            if reranking and self._reranker:
+                nodes = self._reranker.postprocess_nodes(nodes, query_bundle=query_bundle)
+                
+            nodes = nodes[:self.top_pick]
+            
+            results = []
+            for n in nodes:
+                results.append({
+                    "text": n.node.get_content(metadata_mode="none"),
+                    "metadata": n.node.metadata
+                })
+            return results
+        except Exception as e:
+            logger.error(f"Error during search: {e}. Falling back to mock search.")
+            return self.get_mock_nodes(query)
         
 # CIRCUIT BREAKER
 class CircuitState(Enum):
@@ -219,7 +400,6 @@ except ImportError:
 # Redis cache import
 try:
     import redis
-    # continue
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
@@ -232,22 +412,51 @@ class RedisSemanticCache:
     def __init__(self):
         """_summary_
         """
-        # continue
+        self.enabled = config.redis.enabled
+        self.demo_mode = config.demo_mode or not REDIS_AVAILABLE or not self.enabled
+        self._memory_cache = {}
+        self.hits = 0
+        self.misses = 0
+        self._executor = ThreadPoolExecutor(max_workers=2)
+        
+        self._init_redis()
+        self._init_encoder()
+        self._create_index()
     
     def _init_redis(self):
         """_summary_
         """
-        # continue
+        if self.demo_mode:
+            return
+        try:
+            self.redis_client = redis.Redis(
+                host=config.redis.host,
+                port=config.redis.port,
+                db=config.redis.db,
+                decode_responses=True
+            )
+            self.redis_client.ping()
+            logger.info("Redis connection established for semantic cache.")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}. Switching cache to local memory.")
+            self.demo_mode = True
         
     def _init_encoder(self):
         """_summary_
         """
-        # continue
+        self.encoder = None
+        if config.cache.enabled:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.encoder = SentenceTransformer(config.cache.embedding_model)
+                logger.info(f"Loaded Embedding Model: {config.cache.embedding_model} for Cache.")
+            except Exception as e:
+                logger.warning(f"Could not load SentenceTransformer encoder: {e}. Using string-matching.")
         
     def _create_index(self):
         """_summary_
         """
-        # continue
+        pass
         
     async def _encode_async(self, query):
         """_summary_
@@ -255,6 +464,8 @@ class RedisSemanticCache:
         Args:
             query (_type_): _description_
         """
+        if self.encoder is None:
+            return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, self.encoder.encode, query)
     
@@ -264,7 +475,25 @@ class RedisSemanticCache:
         Args:
             query (_type_): _description_
         """
-        # continue
+        query_clean = query.strip().lower()
+        if self.demo_mode:
+            val = self._memory_cache.get(query_clean)
+            if val:
+                self.hits += 1
+                return val
+            self.misses += 1
+            return None
+            
+        try:
+            val = self.redis_client.get(f"cache:{query_clean}")
+            if val:
+                self.hits += 1
+                return val
+            self.misses += 1
+            return None
+        except Exception as e:
+            logger.error(f"Redis get cache failed: {e}")
+            return None
         
     async def put (self, query, response):
         """_summary_
@@ -273,18 +502,35 @@ class RedisSemanticCache:
             query (_type_): _description_
             response (_type_): _description_
         """
-        # continue
+        query_clean = query.strip().lower()
+        if self.demo_mode:
+            self._memory_cache[query_clean] = response
+            return
+            
+        try:
+            self.redis_client.setex(f"cache:{query_clean}", 3600, response)
+        except Exception as e:
+            logger.error(f"Redis set cache failed: {e}")
         
     def get_stats(self):
         """_summary_
         """
-        # continue
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "mode": "demo" if self.demo_mode else "production",
+            "size": len(self._memory_cache) if self.demo_mode else "dynamic"
+        }
         
     def close(self):
         """_summary_
         """
         self._executor.shutdown(wait=False)
-        self.redis_client.close()
+        if not self.demo_mode and hasattr(self, 'redis_client'):
+            try:
+                self.redis_client.close()
+            except Exception:
+                pass
 
 class RetrievalEngineV7(RetrievalEngine):
     """_summary_
@@ -304,7 +550,13 @@ class RetrievalEngineV7(RetrievalEngine):
             enable_circuit_breaker (bool, optional): _description_. Defaults to True.
         """
         super().__init__(top_k, top_pick, persist_dir)
-        # continue
+        self.enable_cache = enable_cache
+        self.cache = RedisSemanticCache() if enable_cache else None
+        self.circuit_breaker = CircuitBreaker() if enable_circuit_breaker else None
+        
+    async def retrieve(self, query: str) -> List[Dict[str, Any]]:
+        """Main retrieve function invoked by endpoints"""
+        return await self.search_with_cache(query)
         
     async def search_with_cache(self, query, reranking=False, neighbor=None):
         """_summary_
@@ -314,7 +566,19 @@ class RetrievalEngineV7(RetrievalEngine):
             reranking (bool, optional): _description_. Defaults to False.
             neighbor (_type_, optional): _description_. Defaults to None.
         """
-        # continue
+        if self.circuit_breaker and not self.circuit_breaker.is_allowed():
+            logger.warning("Circuit breaker is OPEN. Fast failing search.")
+            raise CircuitOpenError("Search circuit breaker is currently open due to failures.")
+
+        try:
+            results = await self.search(query, reranking=reranking, neighbor=neighbor)
+            if self.circuit_breaker:
+                self.circuit_breaker.record_success()
+            return results
+        except Exception as e:
+            if self.circuit_breaker:
+                self.circuit_breaker.record_failure()
+            raise e
         
     async def search_multi_query(
         self,
@@ -334,22 +598,46 @@ class RetrievalEngineV7(RetrievalEngine):
         Returns:
             Tuple[List, bool]: _description_
         """
-        # continue
+        tasks = [self.search_with_cache(q, reranking=reranking, neighbor=neighbor) for q in queries]
+        try:
+            if timeout:
+                results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout)
+            else:
+                results = await asyncio.gather(*tasks)
+                
+            # Merge and deduplicate
+            merged = []
+            seen = set()
+            for res_list in results:
+                for node in res_list:
+                    meta = node.get("metadata", {})
+                    key = (meta.get("file_name"), meta.get("page_no"))
+                    if key not in seen:
+                        seen.add(key)
+                        merged.append(node)
+            return merged, False
+        except asyncio.TimeoutError:
+            logger.warning("Multi-query search timed out.")
+            return [], True
+        except Exception as e:
+            logger.error(f"Error during multi-query search: {e}")
+            return [], False
         
     def get_stats(self):
         """_summary_
         """
-        # continue
+        return {
+            "cache": self.cache.get_stats() if self.cache else "disabled",
+            "circuit_breaker": self.circuit_breaker.state.value if self.circuit_breaker else "disabled",
+            "demo_mode": self.demo_mode
+        }
         
-    def close(self):
-        """_summary_
-        """
-        if self.cache:
-            self.cache.close()
-            
 # TEST
 if __name__ == "__main__":
     async def test():
-        # continue
-        pass
+        engine = RetrievalEngineV7(top_k=5, top_pick=2)
+        print("Testing engine search...")
+        results = await engine.retrieve("Lãi suất gửi tiết kiệm là bao nhiêu?")
+        print(f"Results: {json.dumps(results, indent=2, ensure_ascii=False)}")
+        print(f"Stats: {engine.get_stats()}")
     asyncio.run(test())

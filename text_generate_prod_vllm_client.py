@@ -1,58 +1,27 @@
 # =============================================================================
-# FILE: text_generate_prod_v7_vllm_client.py
-# DESCRIPTION: LLM Client for vLLM Server v7 - Qwen3.5-4B
-# DATE: 2024-12-24
-# VERSION: 7.1-Client (20+ Concurrent Users, Non-Thinking Mode)
-# =============================================================================
+# FILE: text_generate_prod_vllm_client.py
+# DESCRIPTION: LLM Client for vLLM Server - Qwen3.5-4B with Demo Mode support
+# VERSION: 7.1-Client (20+ Concurrent Users, Non-Thinking Mode + thinking emulation)
 #
-# GIỚI THIỆU (Introduction):
-# --------------------------
-# LLM Client cho vLLM Server v7, tối ưu cho Qwen3.5-4B.
-# Qwen3.5 mặc định sẽ think — sử dụng enable_thinking=False qua
-# chat_template_kwargs để tắt thinking.
-#
-# LƯU Ý QUAN TRỌNG VỀ QWEN3.5:
-# - Qwen3.5 KHÔNG hỗ trợ /think và /nothink soft switch
-# - Để tắt thinking, dùng: chat_template_kwargs={"enable_thinking": False}
-# - Sampling non-thinking: temp=0.7, top_p=0.8, presence_penalty=1.5
-#
-# MỤC ĐÍCH (Purpose):
-# -------------------
-# 1. Kết nối đến vLLM server qua OpenAI-compatible API
-# 2. Generate responses với Qwen3.5 model
-# 3. Hỗ trợ streaming cho perceived latency thấp
-# 4. Toggle Thinking/Non-Thinking mode per-request via API params
-#
-# CÁCH THỨC VẬN HÀNH (How it works):
-# ----------------------------------
-# 1. vLLM server chạy trên port 8011 với Qwen3.5 model
-# 2. LLMDeploymentV7VLLMClient gửi HTTP requests đến vLLM
-# 3. ChatEngineV7VLLMClient format prompts với Qwen3.5 chat template
-# 4. Thinking mode toggle qua chat_template_kwargs (không dùng soft switch)
-#
-# LƯU Ý (Notes):
-# --------------
-# - Stop tokens: im_end (giống Qwen3/Qwen2.5)
-# - Sampling: temp=0.7, top_p=0.8, presence_penalty=1.5 (non-thinking)
-# - KHÔNG dùng greedy decoding (temperature=0) - gây repetition loops
-# - 100% LOCAL - không sử dụng OpenAI cloud
-#
-# THAY ĐỔI SO VỚI v7.0:
-# -------------------
-# - Model: Qwen3-30B-A3B-GPTQ-Int4 → Qwen3.5-4B
-# - REMOVED: /no_think soft switch (Qwen3.5 không hỗ trợ)
-# - CHANGED: Thinking control chỉ qua chat_template_kwargs
-# - REMOVED: generate_chat_async, generate_batch_async (không sử dụng)
-#
-# THAM KHẢO:
-# ----------
-# - https://huggingface.co/Qwen/Qwen3.5-4B
-#
+# IMPLEMENTED CLASSES & FUNCTIONS:
+# - parse_thinking_response(response): Extracts the reasoning tags <think>...</think> from answers.
+# - ClientMetrics: Thread-safe metrics collector logging requests, token counts, latency and errors.
+# - LLMDeploymentV7VLLMClient: Connects to the local vLLM OpenAI-compatible server.
+#   * generate_async(): Async call returning clean text output. Supports demo mode simulation.
+#   * generate_stream(): Async generator yielding token chunks. In demo mode, it mocks both thinking and answering phases.
+#   * get_mock_response(): Intent-matching simulator formulating mock Shinhan Bank responses and reasoning traces.
+#   * health_check(): Tests server availability or reports local mock status.
+# - ChatEngineV7VLLMClient: Formats prompts, parses citations and forwards inputs.
+#   * create_messages(): Formats prompts containing user queries and context metadata.
+#   * _process_sources(): Decodes document nodes to generate normalized URL-compatible citations.
+#   * generate_response() / generate_response_stream(): Performs completion tasks.
+#   * generate_direct_response() / generate_direct_response_stream(): Bypasses document database query steps for casual talk.
 # =============================================================================
 
 
 import asyncio
 import logging
+logger = logging.getLogger(__name__)
 import time
 import re
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
@@ -61,12 +30,15 @@ import threading
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backend:cudaMallocAsync"
 
-# OpenAI-compatible client library (calls local vLLM server, NOT OpenAI cloud)
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    AsyncOpenAI = None
+    logger.warning("openai package not found. Real LLM calls will be unavailable.")
 
 from config import config
-
-logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -287,13 +259,18 @@ class LLMDeploymentV7VLLMClient:
         self.model_name = model_name or config.vllm.model_name or "Qwen3.5-4B"
         self.timeout = timeout
         self.metrics = ClientMetrics()
+        self.demo_mode = config.demo_mode
         
         # Initialize OpenAI-compatible async client
-        self.client = AsyncOpenAI(
-            base_url=base_url,
-            api_key="EMPTY",
-            timeout=timeout,
-        )
+        if not self.demo_mode:
+            self.client = AsyncOpenAI(
+                base_url=base_url,
+                api_key="EMPTY",
+                timeout=timeout,
+            )
+        else:
+            self.client = None
+            logger.info("LLM Client is running in DEMO MODE (mock responses enabled).")
         
         logger.info(f"LLM Client V7.1 sẵn sàng!")
         logger.info(f"   Model: {self.model_name}")
@@ -348,6 +325,13 @@ class LLMDeploymentV7VLLMClient:
         presence_penalty = sampling["presence_penalty"]
         
         try:
+            if self.demo_mode:
+                await asyncio.sleep(0.5)
+                answer, thinking = self.get_mock_response(messages, enable_thinking=use_thinking)
+                latency_ms = (time.time() - start_time) * 1000
+                self.metrics.record_request(len(answer.split()), latency_ms, thinking=use_thinking)
+                return answer
+
             # ============================================================
             # QUAN TRỌNG: Dùng chat.completions.create()
             # (KHÔNG PHẢI completions.create())
@@ -441,6 +425,21 @@ class LLMDeploymentV7VLLMClient:
         presence_penalty = sampling["presence_penalty"]
         
         try:
+            if self.demo_mode:
+                answer, thinking = self.get_mock_response(messages, enable_thinking=use_thinking)
+                if use_thinking and thinking:
+                    for chunk in thinking.split(" "):
+                        await asyncio.sleep(0.05)
+                        yield {"type": "thinking", "content": chunk + " "}
+                    await asyncio.sleep(0.3)
+                    
+                # Stream answer in small chunks
+                chunk_size = 3
+                for i in range(0, len(answer), chunk_size):
+                    await asyncio.sleep(0.02)
+                    yield {"type": "answer", "content": answer[i:i+chunk_size]}
+                return
+
             # Chat Completions API với stream=True
             stream = await self.client.chat.completions.create(
                 model=self.model_name,
@@ -476,6 +475,63 @@ class LLMDeploymentV7VLLMClient:
             logger.error(f"LLM Client streaming error: {e}")
             raise LLMGenerationError(f"Streaming failed: {e}")
     
+    def get_mock_response(self, messages: List[Dict], enable_thinking: bool = False) -> Tuple[str, str]:
+        # Extract the user prompt
+        prompt = messages[-1]["content"] if messages else ""
+        
+        # Try to extract question and context
+        question = ""
+        context = ""
+        
+        q_match = re.search(r"QUESTION:\s*(.*?)\s*CONTEXT", prompt, re.DOTALL)
+        if q_match:
+            question = q_match.group(1).strip()
+        else:
+            q_match_simple = re.search(r"Query:\s*\"(.*?)\"", prompt)
+            if q_match_simple:
+                question = q_match_simple.group(1).strip()
+            else:
+                question = prompt
+                
+        c_match = re.search(r"CONTEXT.*?:(.*?)MANDATORY RULE", prompt, re.DOTALL)
+        if c_match:
+            context = c_match.group(1).strip()
+            
+        question_lower = question.lower()
+        
+        thinking = (
+            f"1. Nhận được câu hỏi từ nhân viên: \"{question}\"\n"
+            f"2. Xác định ngôn ngữ câu hỏi: tiếng Việt/tiếng Anh.\n"
+            f"3. Dò tìm tài liệu tham chiếu liên quan trong cơ sở dữ liệu Shinhan Bank.\n"
+            f"4. Phát hiện tài liệu phù hợp trong ngữ cảnh:\n"
+            f"   - Trích xuất nội dung: \"{context[:150]}...\"\n"
+            f"5. Đối chiếu quy tắc: Trả lời ngắn gọn, trực diện, không rườm rà. Đúng ngôn ngữ yêu cầu.\n"
+            f"6. Tổng hợp câu trả lời chính xác từ thông tin chính thống."
+        )
+        
+        if "lãi suất" in question_lower or "deposit" in question_lower or "tiết kiệm" in question_lower or "gửi" in question_lower:
+            answer = "Lãi suất tiền gửi tiết kiệm kỳ hạn 12 tháng tại Shinhan Bank hiện tại là 5.5%/năm cho khách hàng cá nhân và 5.2%/năm cho khách hàng doanh nghiệp. Nếu bạn rút trước hạn, bạn sẽ chỉ nhận được lãi suất không kỳ hạn là 0.1%/năm."
+        elif "thẻ" in question_lower or "card" in question_lower or "hạn mức" in question_lower:
+            answer = "Hạn mức thẻ tín dụng Shinhan Bank được duyệt theo thu nhập. Phí rút tiền mặt tại ATM bằng thẻ tín dụng là 4% số tiền giao dịch (tối thiểu 20,000 VND). Miễn lãi tối đa 45 ngày."
+        elif "vay" in question_lower or "loan" in question_lower or "thế chấp" in question_lower:
+            answer = "Shinhan Bank hỗ trợ vay thế chấp mua nhà với lãi suất ưu đãi năm đầu từ 6.9%/năm. Phí phạt trả nợ trước hạn là 2% trong 3 năm đầu tiên. Vay tiêu dùng yêu cầu lương chuyển khoản từ 10 triệu đồng/tháng."
+        elif "vpn" in question_lower or "password" in question_lower or "mật khẩu" in question_lower:
+            answer = "Để đổi mật khẩu Windows hoặc VPN, hãy nhấn tổ hợp phím Ctrl + Alt + Delete rồi chọn 'Change a password'. Mật khẩu phải dài ít nhất 8 ký tự và đổi mỗi 90 ngày."
+        elif "hello" in question_lower or "xin chào" in question_lower or "hi " in question_lower:
+            answer = "Xin chào! Tôi có thể hỗ trợ gì cho bạn về các chính sách, sản phẩm tín dụng, tiền gửi hoặc thẻ của Shinhan Bank hôm nay?"
+        else:
+            if context:
+                # Context is metadata: ... \ncontent: ...
+                lines = [line.strip() for line in context.split('\n') if line.strip().startswith('content:')]
+                if lines:
+                    answer = lines[0].replace('content:', '').strip()
+                else:
+                    answer = "Dựa trên tài liệu chính sách của Shinhan Bank, thông tin này được quy định cụ thể trong quy chế nội bộ. Vui lòng kiểm tra chi tiết trong file đính kèm."
+            else:
+                answer = "Thông tin này hiện không nằm trong tài liệu chính sách được cung cấp của Shinhan Bank. Bạn có cần tôi hỗ trợ tìm kiếm chủ đề khác không?"
+                
+        return answer, thinking
+
     def get_metrics(self) -> Dict:
         """
         Giới thiệu: Bóc xuất báo cáo đo đạc Telemetry hoạt động của Class LLM Client V7.
@@ -508,6 +564,15 @@ class LLMDeploymentV7VLLMClient:
         Lưu ý: Function này được gọi mồi độc lập từ core file `mybot_prod` endpoint GET /health mà không ảnh hưởng luồng Chat Generate chung.
         """
         try:
+            if self.demo_mode:
+                return {
+                    "status": "healthy",
+                    "server": self.base_url + " (Demo Mode)",
+                    "model": self.model_name,
+                    "available_models": [self.model_name],
+                    "metrics": self.get_metrics(),
+                    "thinking_mode_default": config.qwen3.enable_thinking,
+                }
             models = await self.client.models.list()
             return {
                 "status": "healthy",

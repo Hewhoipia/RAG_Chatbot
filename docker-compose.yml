@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database Service
+  db:
+    image: postgres:15-alpine
+    container_name: rag_postgres_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=rag_chatbot
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag_chatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Semantic Cache Service
+  cache:
+    image: redis:7-alpine
+    container_name: rag_redis_cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. FastAPI Chatbot Server Service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag_chatbot_client
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    environment:
+      # Inject connection details of container services
+      - RAG_DEMO_MODE=true
+      - POSTGRES_ENABLED=true
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE=rag_chatbot
+      - REDIS_ENABLED=true
+      - REDIS_HOST=cache
+      - REDIS_PORT=6379
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8010
+    volumes:
+      # Map host folders to persist logs and allow live document drops
+      - ./data:/app/data
+      - ./demo_logs:/app/demo_logs
+
+volumes:
+  postgres_data:
+  redis_data:

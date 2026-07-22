@@ -1,3 +1,16 @@
+"""
+FILE: mybot_prod_vllm_client.py
+DESCRIPTION: FastAPI server for RAG Chatbot Client. Coordinates semantic caching, client rate limiters, global semaphores, degradation controls, search document mappings and autocomplete dropdown lookups.
+
+IMPLEMENTED CLASSES & FUNCTIONS:
+- TokenBucketRateLimiter: Tracks individual client request frequencies.
+- AdmissionController: Restricts concurrent connection streams using an asyncio Semaphore to avoid server starvation.
+- DegradationController: Monitors server resource metrics (such as CPU and memory usage) to limit RAG search loops when resource thresholds are exceeded.
+- lifespan(): Application startup and shutdown routines registering database pools, retrieval engines, transform routines, limiters and controllers.
+- read_root() / health() / detailed_feedback() / chat_stream_thinking(): Endpoints handling client page rendering, backend health checking, customer surveys, and streaming thinking search completion loops.
+- serve_highlighted_document() / serve_document() / view_pdf_with_title() / metrics() / autocomplete_endpoint(): Static file handlers, PDF page offsets, telemetry outputs, and autocomplete keyword matchers.
+"""
+
 # Access with: http://localhost:8010
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "backed:cudaMallocAsync"
@@ -60,9 +73,17 @@ except ImportError:
     print ("orjson not installed, using standard JSONResponse")
 
 # DOCX handling
-from docx import Document
-from docx.shared import RGBColor
-from docx.enum.text import WD_COLOR_INDEX
+try:
+    from docx import Document
+    from docx.shared import RGBColor
+    from docx.enum.text import WD_COLOR_INDEX
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    Document = None
+    RGBColor = None
+    WD_COLOR_INDEX = None
+    logger.warning("python-docx package not found. Highlighted document serving will be unavailable.")
 
 # Local modules - vllm CLIENT
 from config import config
@@ -144,9 +165,39 @@ class HealthResponse(BaseModel):
 # RATE LIMITER
 class TokenBucketRateLimiter:
     """Per-IP limiter using token bucket algorithm"""
+    def __init__(self, capacity: int = 10, fill_rate: float = 1.0):
+        self.capacity = capacity
+        self.fill_rate = fill_rate
+        self.buckets = {}
+        self._lock = Lock()
+
+    async def is_allowed(self, ip: str) -> bool:
+        with self._lock:
+            now = time.time()
+            if ip not in self.buckets:
+                self.buckets[ip] = {"tokens": float(self.capacity), "last_update": now}
+            
+            bucket = self.buckets[ip]
+            elapsed = now - bucket["last_update"]
+            bucket["tokens"] = min(float(self.capacity), bucket["tokens"] + elapsed * self.fill_rate)
+            bucket["last_update"] = now
+            
+            if bucket["tokens"] >= 1.0:
+                bucket["tokens"] -= 1.0
+                return True
+            return False
 
 class AdmissionController:
     """Global concurrency control - limits TOTAL concurrent requests to protect GPU"""
+    def __init__(self, max_concurrent_requests: int = 25):
+        self.max_concurrent = max_concurrent_requests
+        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
+
+    async def acquire(self):
+        await self._semaphore.acquire()
+
+    def release(self):
+        self._semaphore.release()
 
 class DegradationLevel(Enum):
     NORMAL = "normal" # full features
@@ -155,6 +206,25 @@ class DegradationLevel(Enum):
     
 class DegradationController:
     """Graceful degradation based on system load"""
+    def __init__(self, cpu_threshold: float = 90.0, mem_threshold: float = 90.0):
+        self.cpu_threshold = cpu_threshold
+        self.mem_threshold = mem_threshold
+
+    def get_level(self) -> DegradationLevel:
+        try:
+            import psutil
+            cpu = psutil.cpu_percent()
+            mem = psutil.virtual_memory().percent
+            if cpu > self.cpu_threshold or mem > self.mem_threshold:
+                return DegradationLevel.MINIMAL
+            elif cpu > self.cpu_threshold * 0.8 or mem > self.mem_threshold * 0.8:
+                return DegradationLevel.REDUCED
+            return DegradationLevel.NORMAL
+        except ImportError:
+            return DegradationLevel.NORMAL
+
+    def should_reject(self) -> bool:
+        return self.get_level() == DegradationLevel.MINIMAL
 
 # CUSTOM EXCEPTIONS
 class RAGException(Exception):
@@ -220,6 +290,16 @@ async def lifespan (app: FastAPI):
     app.state.components = {}
     logger.info("--- Starting up Application ---")
     
+    # Initialize rate limiters, admission control, and degradation controllers
+    app.state.components["rate_limiter"] = TokenBucketRateLimiter(
+        capacity=config.server.rate_limit_capacity,
+        fill_rate=config.server.rate_limit_fill_rate
+    )
+    app.state.components["admission_controller"] = AdmissionController(
+        max_concurrent_requests=config.server.max_concurrent_requests
+    )
+    app.state.components["degradation"] = DegradationController()
+
     # 1. Init Database
     try:
         db_manager = DatabaseManager()
@@ -246,15 +326,24 @@ async def lifespan (app: FastAPI):
 
     # 4. Init Retrieval Engine (RAG)
     try:
-        retrieval_engine = RetrievalEngineV7()
+        # Check if RetrievalEngineV7 parameters are needed. In rag_prod_vllm.py, they default to top_k and top_pick.
+        # Let's provide them from config: config.retrieval.top_k, config.retrieval.top_pick
+        retrieval_engine = RetrievalEngineV7(
+            top_k=config.retrieval.top_k,
+            top_pick=config.retrieval.top_pick,
+            persist_dir=config.cache.persist_dir
+        )
         app.state.components["retrieval"] = retrieval_engine
         logger.info("Retrieval Engine initialized.")
     except Exception as e:
         logger.error(f"Failed to initialize Retrieval Engine: {e}")
 
     # 5. Init Query Transform Client
-    app.state.components["transform_client"] = create_async_client()
-    logger.info("Query Transform client initialized.")
+    try:
+        app.state.components["transform_client"] = create_async_client()
+        logger.info("Query Transform client initialized.")
+    except Exception as e:
+        logger.error(f"Failed to initialize Query Transform client: {e}")
 
     yield
 
@@ -508,9 +597,20 @@ async def chat_stream_thinking(request: Request, chat_request: ChatRequest):
         query_type = "unknown"
         thinking_time = 0.0
         
+        admission = request.app.state.components.get("admission_controller")
+        if admission:
+            await admission.acquire()
+            
         try:
             # 1. Classify query
             query_type = await query_theme(user_input)
+            
+            # query_theme returns List[str] usually. Let's make it robust:
+            if isinstance(query_type, list):
+                if not query_type:
+                    query_type = "chit-chat"
+                else:
+                    query_type = "simple"  # Default RAG label
             
             # 2. Generate response based on type
             if query_type in ["chit-chat", "clarify"]:
@@ -544,6 +644,8 @@ async def chat_stream_thinking(request: Request, chat_request: ChatRequest):
             error_event = {"type": "error", "content": "An error occurred during generation."}
             yield f"data: {json.dumps(error_event)}\n\n"
         finally:
+            if admission:
+                admission.release()
             # 6. Log to DB
             if db:
                 try:
