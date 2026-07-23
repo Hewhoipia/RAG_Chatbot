@@ -95,7 +95,7 @@ from rag_prod_vllm import RetrievalEngineV7, CircuitOpenError
 from mini_func.query_theme.query_theme import query_theme
 from mini_func.follow_up.follow_up_service import generate_smart_follow_ups
 from mini_func.auto_suggest.auto_suggest import get_autocomplete_suggestions
-from mini_func.query_transform.query_transform import create_async_client
+from mini_func.query_routing.query_transform import create_async_client
 # NOTE: In client mode, vLLM runs as separate server on port 8011
 
 # LOGGING
@@ -456,7 +456,7 @@ async def read_root(request: Request):
     Nó sẽ tìm và trả về file index.html nằm trong thư mục 'templates'
     """
     if templates is None:
-        return HTMLResponse("<h1>RAG Chatbot v1 Client</h1><p>Templates not configured</p>")
+        return HTMLResponse("<h1>RAG Chatbot Client</h1><p>Templates not configured</p>")
     user_ip = request.client.host if request.client else "unknown"
     if "x-forwarded-for" in request.headers:
         user_ip = request.headers["x-forwarded-for"].split(",")[0].strip()
@@ -590,86 +590,27 @@ async def chat_stream_thinking(request: Request, chat_request: ChatRequest):
         - Đầu ra: Các Frame dang Yield (str) form JSON
         Có đếm tg Thinking tính bằng seconds cho vào DB
         """
-        full_response = ""
+        thinking_start = datetime.now()
         thinking_content = ""
-        sources = []
-        cache_hit = False
-        query_type = "unknown"
-        thinking_time = 0.0
-        
-        admission = request.app.state.components.get("admission_controller")
-        if admission:
-            await admission.acquire()
-            
+        answer_content = ""
+        query_type = None
         try:
-            # 1. Classify query
-            query_type = await query_theme(user_input)
-            
-            # query_theme returns List[str] usually. Let's make it robust:
-            if isinstance(query_type, list):
-                if not query_type:
-                    query_type = "chit-chat"
-                else:
-                    query_type = "simple"  # Default RAG label
-            
-            # 2. Generate response based on type
-            if query_type in ["chit-chat", "clarify"]:
-                # Direct response, no RAG
-                async for event in chat_engine.generate_direct_response_stream(user_input, query_type):
-                    if event["type"] == "answer":
-                        full_response += event["content"]
-                    yield f"data: {json.dumps(event)}\n\n"
-            else: # RAG for "simple", "complex", "unknown"
-                # 3. Retrieve context
-                retrieved_nodes = await retrieval.retrieve(user_input)
-                sources = chat_engine._process_sources(retrieved_nodes)
-                
-                # 4. Stream response from LLM
-                thinking_start_time = time.time()
-                async for event in chat_engine.generate_response_stream(user_input, retrieved_nodes, enable_thinking=enable_thinking):
-                    if event["type"] == "thinking":
-                        thinking_content += event["content"]
-                    elif event["type"] == "answer":
-                        if thinking_time == 0.0 and thinking_content:
-                            thinking_time = time.time() - thinking_start_time
-                        full_response += event["content"]
-                    yield f"data: {json.dumps(event)}\n\n"
-                
-                # 5. Send sources
-                sources_event = {"type": "sources", "content": sources}
-                yield f"data: {json.dumps(sources_event)}\n\n"
-
-        except Exception as e:
-            logger.error(f"Error during stream generation for {conversation_id}: {e}", exc_info=True)
-            error_event = {"type": "error", "content": "An error occurred during generation."}
-            yield f"data: {json.dumps(error_event)}\n\n"
-        finally:
-            if admission:
-                admission.release()
-            # 6. Log to DB
-            if db:
+            if classifier and config.query_analysis.enabled:
                 try:
-                    await db.save_chat_history(
-                        conversation_id=conversation_id,
-                        user_ip=client_ip,
-                        user_name=users_lst.get(client_ip, ""),
-                        user_question=user_input,
-                        llm_answer=full_response,
-                        thinking_content=thinking_content if enable_thinking else None,
-                        sources=json.dumps(sources) if sources else None,
-                        query_type=query_type,
-                        cache_hit=cache_hit,
-                        thinking_time_sec=thinking_time,
-                        total_time_sec=(datetime.now() - t0).total_seconds()
-                    )
-                except Exception as db_error:
-                    logger.error(f"Failed to save chat history for {conversation_id}: {db_error}")
-            
-            # 7. Final event to close stream
-            final_event = {"type": "final", "conversation_id": conversation_id}
-            yield f"data: {json.dumps(final_event)}\n\n"
-
-    return StreamingResponse(generate_stream_with_thinking(), media_type="text/event-stream")
+                    pass
+                except Exception as e:
+                    pass
+        except Exception as e:
+            pass
+        
+    return StreamingResponse(
+        generate_stream_with_thinking(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Conversation-ID": conversation_id
+        })
         
 @app.get('/files/highlighted/{filename:path}')
 async def serve_highlighted_document(
