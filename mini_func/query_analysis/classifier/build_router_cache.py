@@ -4,30 +4,28 @@
 #
 # GIỚI THIỆU (Introduction):
 # --------------------------
-# Script offline chạy 1 lần để tạo file classifier_centroids.npy.
-# Đọc câu mẫu từ prototypes_vi.py → Embedding bằng BGE-M3 → Tính
-# trung bình (Mean Pooling) → Lưu 4 Centroid vectors ra file .npy.
+# Script offline chạy 1 lần để huấn luyện và tạo file classifier_router.pkl.
+# Đọc câu mẫu từ prototypes_vi.py → Embedding bằng BGE-M3 (qua vLLM) →
+# Áp dụng PCA-Whitening khử nhiễu Anisotropy → Huấn luyện Logistic Regression Head
+# → Lưu toàn bộ pipeline ra file .pkl để phục vụ định tuyến siêu tốc.
 #
 # MỤC ĐÍCH (Purpose):
 # -------------------
-# 1. Pre-compute embedding vectors cho Semantic Router
-# 2. Lưu cache ra file .npy để runtime load trong <1ms
-# 3. Không cần re-embedding mỗi khi server khởi động lại
+# 1. Giải quyết triệt để sự chồng lấn ngữ nghĩa của các nhóm câu mẫu.
+# 2. Tạo không gian vector đẳng hướng (Isotropic) thông qua PCA-Whitening.
+# 3. Lưu cache router ra file .pkl để runtime load trong <1ms mà không cần huấn luyện lại.
 #
 # CÁCH SỬ DỤNG (Usage):
 # ----------------------
 # cd d:\Code\Chatbot\Production\tools\query_analysis
 # python -m classifier.build_router_cache
-#
-# Hoặc:
-# python classifier/build_router_cache.py
-#
+
 # LƯU Ý (Notes):
 # ---------------
 # - Chỉ cần chạy lại khi THÊM/SỬA câu mẫu trong prototypes_vi.py
-# - File output: classifier/classifier_centroids.npy (4 vectors, mỗi vector 1024 dims)
-# - File metadata: classifier/classifier_centroids_meta.json (thứ tự labels)
-# - Cần BGE-M3 model đã tải sẵn tại đường dẫn EMBEDDING_DIR
+# - File output: classifier/classifier_router.pkl
+# - File metadata: classifier/classifier_router_meta.json (thứ tự labels)
+# - Cần model đã tải sẵn tại đường dẫn EMBEDDING_DIR
 # =============================================================================
 
 import os
@@ -42,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import numpy as np
 import logging
+import pickle
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -50,26 +49,24 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
+# Thử import scikit-learn
+try:
+    from sklearn.decomposition import PCA
+    from sklearn.linear_model import LogisticRegression
+except ImportError:
+    logger.error("❌ Thiếu thư viện scikit-learn.")
+    raise
+
 # Import config_v7
 from config_v7 import config
 
 async def build_centroids():
     """
-    Giới thiệu: Tập lệnh tiền xử lý nén đo đạc 4 Centroid vectors chuẩn làm mốc tọa độ không gian mẫu.
+    Giới thiệu: Tập lệnh tiền xử lý huấn luyện mô hình phân loại tuyến tính trên không gian vector đã làm trắng (Whitened).
     
-    Mục đích sử dụng: Tạo file Cache định hình trước Vector nhúng của lưới màng Semantic Router giúp kéo Latency mốc Runtime xuống <1ms siêu tốc.
-    
-    Cách thức hoạt động:
-    - B1: Trích xuất câu văn mẫu của 4 Nhóm nhãn (Chit-chat, Simple, Complex, Clarify) từ prototypes_vi.py.
-    - B2: Gọi vLLM API Embedding để biến các câu thành Vector.
-    - B3: Mean pooling trung bình cộng từng nhóm để tạo 1 Centroid cho mỗi nhóm.
-    - B4: Xếp chồng Array và ghi đĩa file `.npy` kèm Tracking Info `meta.json`.
-    
-    Đầu vào - Đầu ra của hàm đó:
-    - Đầu vào: Lấy dữ liệu cấu hình từ file constants/env.
-    - Đầu ra: Lưu file .npy.
+    Mục đích sử dụng: Tạo file Cache chứa tham số PCA và Logistic Regression giúp định tuyến chính xác với Latency <1ms.
     """
-    logger.info(f"=== BUILD ROUTER CACHE ===")
+    logger.info(f"=== BUILD ROUTER CLASSIFIER CACHE ===")
 
     # --- Bước 2: Load câu mẫu từ prototypes_vi.py ---
     try:
@@ -123,69 +120,93 @@ async def build_centroids():
     except Exception as e:
         logger.warning(f"   ⚠ Lỗi lấy danh sách model từ vLLM: {e}. Fallback dùng: {model_name}")
 
-    # --- Bước 4: Encode và tính Centroid cho mỗi nhóm ---
-    centroids = []
-    labels = []
+    # --- Bước 4: Encode toàn bộ dữ liệu mẫu ---
+    all_embeddings = []
+    all_labels = []
 
     for group_name, sentences in groups.items():
         logger.info(f"Encoding {group_name} ({len(sentences)} sentences) qua vLLM...")
 
-        # Encode tất cả câu trong nhóm bằng vLLM API
         try:
             response = await vllm_client.embeddings.create(
                 model=model_name,
                 input=sentences
             )
             embeddings = np.array([item.embedding for item in response.data])
+            all_embeddings.append(embeddings)
+            # Gán nhãn dạng chuỗi (string) trực tiếp để classifier lưu trữ tự nhiên
+            all_labels.extend([group_name] * len(sentences))
+            logger.info(f"   ✓ Đã nhận diện và encode thành công {len(embeddings)} vectors.")
         except Exception as e:
             logger.error(f"   ❌ Lỗi khi gọi vLLM API cho nhóm {group_name}: {e}")
             raise e
 
-        # Mean Pooling: Tính trung bình tất cả vectors → 1 Centroid
-        centroid = np.mean(embeddings, axis=0)
-        centroids.append(centroid)
-        labels.append(group_name)
+    # Gộp toàn bộ vector nhúng và nhãn thành 2 ma trận lớn để huấn luyện
+    X = np.vstack(all_embeddings)  # Shape: (Tổng số câu mẫu, Kích thước vector 1024)
+    y = np.array(all_labels)       # Shape: (Tổng số câu mẫu,)
+    
+    logger.info(f"Tổng số mẫu nạp vào huấn luyện: {X.shape[0]} mẫu, số chiều vector: {X.shape[1]}")
 
-        logger.info(f"   ✓ {group_name} centroid: shape={centroid.shape}, norm={np.linalg.norm(centroid):.4f}")
+    # --- Bước 5: Thực hiện PCA-Whitening để bẻ gãy ranh giới chồng lấn (Anisotropy) ---
+    logger.info("Đang tính toán ma trận xoay PCA-Whitening...")
+    # Số lượng component tối đa dựa trên số mẫu hiện có để tránh phân rã vô hạn
+    n_components = min(X.shape[0] - 1, X.shape[1]) 
+    
+    # whiten=True sẽ tự động thực hiện phép chuẩn hóa: x_white = x_rot / sqrt(lambda)
+    pca = PCA(n_components=n_components, whiten=True, random_state=42)
+    X_white = pca.fit_transform(X)
+    logger.info(f"   ✓ Không gian vector đã được chuẩn hóa về dạng Đẳng hướng. Shape mới: {X_white.shape}")
 
-    # --- Bước 5: Stack và lưu ra file ---
-    centroids_array = np.stack(centroids)  # Shape: (4, embedding_dim)
-    logger.info(f"Final centroids array shape: {centroids_array.shape}")
+    # --- Bước 6: Huấn luyện bộ phân loại tối ưu Linear Probe (Logistic Regression) ---
+    logger.info("Đang huấn luyện bộ phân lớp tuyến tính Logistic Regression...")
+    # Sử dụng multinomial cho bài toán phân loại đa lớp
+    clf = LogisticRegression(C=1.0, max_iter=1000, multi_class='multinomial', random_state=42)
+    clf.fit(X_white, y)
+    logger.info(f"   ✓ Huấn luyện classifier hoàn tất. Lớp phân loại: {clf.classes_}")
 
-    # Đường dẫn output
+    # --- Bước 7: Lưu các đối tượng ra file Cache ---
     output_dir = os.path.dirname(__file__)
-    npy_path = os.path.join(output_dir, "classifier_centroids.npy")
-    meta_path = os.path.join(output_dir, "classifier_centroids_meta.json")
+    pkl_path = os.path.join(output_dir, "classifier_router.pkl")
+    meta_path = os.path.join(output_dir, "classifier_router_meta.json")
 
-    # Lưu vectors
-    np.save(npy_path, centroids_array)
-    logger.info(f"   ✓ Saved centroids: {npy_path}")
+    # Đóng gói cả PCA và Logistic Regression vào 1 tệp pickle duy nhất
+    router_assets = {
+        "pca": pca,
+        "classifier": clf,
+        "classes": clf.classes_.tolist()
+    }
+    
+    with open(pkl_path, "wb") as f:
+        pickle.dump(router_assets, f)
+    logger.info(f"   ✓ Đã lưu file mô hình Router: {pkl_path}")
 
-    # Lưu metadata (thứ tự labels để mapping đúng index)
+    # Lưu metadata để tiện theo dõi/giám sát hệ thống
     metadata = {
-        "labels": labels,
+        "labels": clf.classes_.tolist(),
         "embedding_model": model_name,
         "num_sentences": {name: len(sents) for name, sents in groups.items()},
-        "embedding_dim": int(centroids_array.shape[1]),
+        "embedding_dim": int(X.shape[1]),
+        "pca_components": int(n_components),
+        "total_samples": int(X.shape[0]),
     }
     with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
-    logger.info(f"   ✓ Saved metadata: {meta_path}")
+    logger.info(f"   ✓ Đã lưu metadata theo dõi: {meta_path}")
 
     logger.info(f"=== BUILD COMPLETE ===")
-    logger.info(f"Bạn có thể sử dụng HybridClassifier ngay bây giờ!")
+    logger.info(f"Hệ thống định tuyến thông minh đã sẵn sàng hoạt động!")
 
-    return centroids_array
+    return router_assets
 
 
 # =============================================================================
-# ENTRY POINT (Chạy trực tiếp: python -m classifier.build_router_cache)
+# ENTRY POINT
 # =============================================================================
 if __name__ == "__main__":
     import argparse
     import asyncio
 
-    parser = argparse.ArgumentParser(description="Tạo cache centroids cho Semantic Router sử dụng vLLM API")
+    parser = argparse.ArgumentParser(description="Tạo cache Router thông minh bằng PCA-Whitening và Logistic Regression")
     args = parser.parse_args()
 
     asyncio.run(build_centroids())

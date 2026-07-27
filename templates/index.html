@@ -753,7 +753,7 @@
 
         // DEMO MODE: when directly open file instead of server
         //const isDemoMode = window.location.protocol === 'file:';
-        const isDemoMode = true; // always demo
+        const isDemoMode = false; // turn off demo for frontend
         const DEMO_RESPONSES = [
             {
                 response: "Đây là câu trả lời mẫu! \n\nBạn đang test giao diện offline.",
@@ -1037,7 +1037,7 @@
                     const {done, value} = await reader.read();
                     if (done) break;
 
-                    biffer += decoder.decode(value, {stream: true});
+                    buffer += decoder.decode(value, {stream: true});
                     const lines = buffer.split('\n');
                     buffer = lines.pop();
 
@@ -1052,7 +1052,7 @@
                                 }
                                 thinkingContent += data.content;
                                 const thinkingContentDiv = thinkingContainer.querySelector('.thinking-content');
-                                thingkingContentDiv.innerHTML = thinkingContent.replace(/\n/g, '<br>') + '<span class = "streaming-cursor"></span>';
+                                thinkingContentDiv.innerHTML = thinkingContent.replace(/\n/g, '<br>') + '<span class = "streaming-cursor"></span>';
                                 thinkingContentDiv.scrollTop = thinkingContentDiv.scrollHeight;
                             }
                             else if (data.type === 'answer'){
@@ -1079,7 +1079,7 @@
                                 const totalTime = data.thinking_time || ((Date.now() - responseStartTime) / 1000).toFixed(0);
                                 finalizeThinkingAlways(thinkingContainer, totalTime, hasThinking);
                                 messageDiv.innerHTML = renderMarkdown(answerContent);
-                                applyKaTex(messageDiv);
+                                applyKaTeX(messageDiv);
                                 currentId = data.conversation_id || '';
                                 streamQueryType = data.query_type || null;
                             }
@@ -1095,7 +1095,7 @@
 
                 clearInterval(responseTimerId);
                 messageDiv.innerHTML = renderMarkdown(answerContent);
-                applyKaTex(messageDiv);
+                applyKaTeX(messageDiv);
                 if (!thinkingContainer.classList.contains('done')){
                     const totalTime = ((Date.now() - responseStartTime) / 1000).toFixed(0);
                     finalizeThinkingAlways(thinkingContainer, totalTime, hasThinking);
@@ -1219,7 +1219,7 @@
             const messageDiv = document.createElement("div");
             messageDiv.className = `message bot`;
             messageDiv.innerHTML = renderMarkdown(data.response);
-            applyKaTex(messageDiv);
+            applyKaTeX(messageDiv);
             responseBlock.appendChild(messageDiv);
             if (data.sources && data.sources.length > 0){
                 console.log('Adding source buttons for sources:', data.sources);
