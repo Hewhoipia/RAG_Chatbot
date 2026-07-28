@@ -127,7 +127,11 @@ IMPLICIT_LOOKUP_TRIGGERS = re.compile(
 
 @dataclass
 class StructuralSignals:
-    """_summary_
+    """
+    Tier 1 signal extractor analyzing query structure via regex without deep semantic understanding.
+
+    Extracts greeting/emotion markers, WH-words, question marks, word count,
+    strong connective words, calculation intent, and implicit intent patterns.
     """
     query: str
     query_lower: str = field(init=False)
@@ -167,7 +171,14 @@ class StructuralSignals:
     has_lookup_trigger: bool = field(init=False, default=False)
 
     def __post_init__(self):
-        """_summary_
+        """
+        Initialize all structural signals by running compiled regex patterns on the input query.
+
+        Workflow:
+        - Step 1: Normalize query and compute basic metrics (word count, punctuation)
+        - Step 2: Detect emotion, greeting, WH-word, yes/no patterns
+        - Step 3: Detect connective patterns (comparison, causal, conditional, aggregation)
+        - Step 4: Detect implicit intent (imperative, action verb, lookup trigger)
         """
         self.query_lower = self.query.lower()
         self.word_count = len(self.query.split())
@@ -198,16 +209,13 @@ class StructuralSignals:
             self.has_causal,
             self.has_conditional,
             self.has_aggregation,
-            self.has_disguised_intent,
-            self.has_procedural,
         ])
         self.has_imperative = bool(IMPERATIVE_PATTERNS.search(self.query_lower))
         self.has_action_verb = bool(ACTION_VERB_PATTERNS.search(self.query_lower))
         self.has_lookup_trigger = bool(IMPLICIT_LOOKUP_TRIGGERS.search(self.query_lower))
     
     def _detect_premise_setup(self):
-        """_summary_
-        """
+        """Detect long premise setup (>8 words before first comma) indicating complex context framing."""
         if "," in self.query_lower:
             premise = self.query_lower.split(",")[0].strip()
             premise_word_count = len(premise.split())
@@ -215,10 +223,10 @@ class StructuralSignals:
                 self.has_premise_setup = True
                 
     def is_likely_chitchat(self) -> bool:
-        """_summary_
+        """Quick heuristic for casual/social queries based on emotion markers and short greetings.
 
         Returns:
-            bool: _description_
+            bool: True if query likely contains only social markers with no substantive question.
         """
         if self.emotion_count >= 2 and not self.has_question_mark:
             return True
@@ -227,19 +235,20 @@ class StructuralSignals:
         return False
     
     def is_likely_complex(self) -> bool:
-        """_summary_
+        """Quick heuristic for complex queries based on strong connective word presence.
 
         Returns:
-            bool: _description_
+            bool: True if query contains comparison, causal, conditional, or aggregation connectives.
         """
         return self.has_strong_connectives
     
     @property
     def has_query_intent(self) -> bool:
-        """_summary_
+        """Determine if the query expresses a clear question intent via explicit or implicit signals.
 
         Returns:
-            bool: _description_
+            bool: True if explicit intent (WH-word, ?, yes/no), structural connectives,
+                  imperative, action verb, or lookup trigger with sufficient context is detected.
         """
         # tầng 1: explicit intent (dấu câu + từ hỏi)
         if any([

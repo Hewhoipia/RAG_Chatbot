@@ -17,20 +17,30 @@ from .signals.retrieval_predict import RetrievalSignals
 logger = logging.getLogger(__name__)
 DEBUG_SIGNALS = False
 
-class RuleBasedClassifier (BaseClassifier):
-    """_summary_
+class RuleBasedClassifier(BaseClassifier):
+    """
+    Rule-based query classifier using regex and keyword matching without GPU or AI model.
 
-    Args:
-        BaseClassifier (_type_): _description_
+    Workflow:
+    - Step 1: Chit-chat / off-domain early exit guards
+    - Step 2: Complex hard overrides (connectives, R&R, multi-source)
+    - Step 3: Full scoring fallback (jargon density, WH-word, yes/no, length)
     """
     def _classify_impl(self, query):
-        """_summary_
+        """
+        Classify a query into chit-chat, simple, complex, or clarify using layered signal analysis.
+
+        Workflow:
+        - Step 1: Chit-chat guard with banking intent override
+        - Step 2: Off-domain question guard, R&R exception, bare banking noun → clarify
+        - Step 3: Complex hard overrides (connectives, multi-source, procedural, temporal)
+        - Step 4: Full scoring (jargon density, WH-word, yes/no, length-based fallback)
 
         Args:
-            query (_type_): _description_
+            query (str): Raw user query string.
 
         Returns:
-            _type_: _description_
+            ClassifyResult: Classification with label, confidence, reason, and decision path.
         """
         structural = StructuralSignals(query)
         semantic = SemanticSignals(query)
@@ -59,7 +69,7 @@ class RuleBasedClassifier (BaseClassifier):
         # - nếu có greeting/emotion NHƯNG cũng có banking term + intent -> ko chit-chat
         # VD: "chào bạn lãi suất vay hiện tại bao nhiêu" -> simple
         # VD: "hello check giúp swift fee" -> simple
-        if (structural.has_greeting or structural.emotion_count > 0) and not (semantic.has_banking_terms and structural.has_query_intent()):
+        if (structural.has_greeting or structural.emotion_count > 0) and not (semantic.has_banking_terms and structural.has_query_intent):
             return ClassifyResult(
                 label="chit-chat",
                 confidence=0.9,
@@ -81,7 +91,7 @@ class RuleBasedClassifier (BaseClassifier):
         # các yêu cầu liên quan vai trò, trách nhiệm, R&R của phòng ban là các tìm kiếm phứt tạp
         # ép nhẵn thẳng sang complex thay vì gắn clarify
         RR_KEYWORDS = {"r&r", "r & r", "vai trò", "trách nhiệm", "role", "responsibility", "responsibilities",}
-        if any(kw in structural.query_lower for kw in RR_KEYWORDS):
+        if semantic.has_banking_terms and any(kw in structural.query_lower for kw in RR_KEYWORDS):
             return ClassifyResult(
                 label="complex",
                 confidence=0.9,
@@ -99,7 +109,7 @@ class RuleBasedClassifier (BaseClassifier):
         # NHƯNG:
         # "tra cứu phí swift" -> has_action_verb -> has_intent = True
         # "phí chuyển tiền swift" -> lookup_trigger + 4 từ -> has_intent = True
-        if semantic.has_banking_terms and not structural.has_query_intent() and structural.word_count <= 8:
+        if semantic.has_banking_terms and not structural.has_query_intent and structural.word_count <= 8:
             return ClassifyResult(
                 label="clarify",
                 confidence=0.85,
@@ -109,7 +119,7 @@ class RuleBasedClassifier (BaseClassifier):
         
         # B2: kiểm tra complex (hard override)
         # từ nối mạnh (so sánh, nhân quả, ...) -> complex
-        if structural.has_strong_connectives:
+        if structural.has_strong_connectives and semantic.has_banking_terms:
             return ClassifyResult(
                 label="complex",
                 confidence=0.9,
@@ -120,12 +130,15 @@ class RuleBasedClassifier (BaseClassifier):
         # B2b: Tiered ambiguous check (Sử dụng RetrievalSignals)
         # Phát hiện câu quá ngắn hoặc chứa từ khoá quá rộng
         if retrieval.is_ambiguous:
-            return ClassifyResult(
-                label="clarify",
-                confidence=0.8,
-                reason=retrieval.ambiguity_reason,
-                path="rule"
-            )
+            if structural.word_count <= 2 and not structural.has_query_intent:
+                return ClassifyResult(
+                    label="clarify",
+                    confidence=0.9,
+                    reason=f"Bare noun <= 2 words, no intent ({retrieval.ambiguity_reason})",
+                    path="rule",
+                )
+            else:
+                logger.info(f"Bare noun > 2 words or has intent ({retrieval.ambiguity_reason}) -> Escalate to Semantic Router")
         
         # multi-domain / predicted sources -> complex
         if retrieval.predicted_sources >= 2:
@@ -137,7 +150,7 @@ class RuleBasedClassifier (BaseClassifier):
             )
         
         # Disguised intent (cách tính lãi suất là gì?)
-        if semantic.has_disguised_intent:
+        if semantic.has_disguised_intent and semantic.has_banking_terms:
             return ClassifyResult(
                 label="complex",
                 confidence=0.85,
@@ -146,7 +159,7 @@ class RuleBasedClassifier (BaseClassifier):
             )
         
         # procedural intent rõ ràng
-        if structural.has_procedural:
+        if structural.has_procedural and semantic.has_banking_terms:
             return ClassifyResult(
                 label="complex",
                 confidence=0.85,
@@ -245,7 +258,7 @@ class RuleBasedClassifier (BaseClassifier):
             )
             
         # câu có baking terms nhưng k có từ nối -> phân loại theo độ dài
-        if semantic.has_baking_terms and not structural.has_strong_connectives:
+        if semantic.has_banking_terms and not structural.has_strong_connectives:
             if structural.word_count > 15:
                 return ClassifyResult(
                     label="complex",
@@ -296,13 +309,14 @@ class RuleBasedClassifier (BaseClassifier):
         )
         
     def get_signals(self, query: str) -> dict:
-        """_summary_
+        """
+        Extract all signal objects (structural, semantic, retrieval) for a given query.
 
         Args:
-            query (str): _description_
+            query (str): Raw user query string.
 
         Returns:
-            dict: _description_
+            dict: Dictionary with keys 'structural', 'semantic', 'retrieval' containing signal objects.
         """
         structural = StructuralSignals(query)
         semantic = SemanticSignals(query)

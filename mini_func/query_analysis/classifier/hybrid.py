@@ -41,6 +41,8 @@ DEFAULT_METADATA_PATH = os.path.join(
     os.path.dirname(__file__), "classifier_router_meta.json"
 )
 
+VALID_LABELS = {"chit-chat", "simple", "complex", "clarify"}
+
 class HybridClassifier(BaseClassifier):
     """
     Giới thiệu: Hybrid Classifier - kiến trúc kết hợp 3 lớp
@@ -71,6 +73,14 @@ class HybridClassifier(BaseClassifier):
         disagreement_threshold: float = 0.1,
     ):
         """
+        Initialize HybridClassifier with rule-based engine, OpenAI client, and semantic router.
+
+        Args:
+            router_path (str): Path to the semantic router pickle file.
+            vllm_base_url (str): Base URL for the vLLM OpenAI-compatible API server.
+            model_name (str): Model name for embedding and LLM calls.
+            confidence_threshold (float): Minimum confidence for semantic router acceptance.
+            disagreement_threshold (float): Maximum confidence gap to trigger LLM escalation on rule-vs-semantic disagreement.
         """
         logger.info("Khởi tạo Hybrid Classifier")
         self.confidence_threshold = confidence_threshold
@@ -113,48 +123,101 @@ class HybridClassifier(BaseClassifier):
             
     def _classify_impl(self, query) -> ClassifyResult:
         """
-        Cách thức hoạt động:
-        - B1: Nạp signals thô qua rule-based engine
-        - B2: lọc qua early exit
-        - B3: dùng engine semantic router
-        - B4: bypass rule-based nếu 3 bước trên không được
+        Core hybrid classification pipeline combining 3 layers with cross-validation.
+
+        Workflow:
+        - Step 1: Rule-based hard overrides (confidence >= 0.85) accepted immediately
+        - Step 2: Semantic Router classification via embedding + PCA + trained classifier
+        - Step 3: Disagreement resolution — if rule and semantic disagree within gap threshold, escalate to LLM
+        - Step 4: Moderate-confidence rule acceptance when semantic is uncertain
+        - Step 5: LLM fallback for truly ambiguous cases
+
+        Args:
+            query (str): Raw user query string.
+
+        Returns:
+            ClassifyResult: Classification label, confidence, reason, and decision path.
         """
         if config.demo_mode:
             logger.info("DEMO MODE: HybridClassifier returning dummy mock answer")
             return ClassifyResult(label="simple", confidence=0.8, reason="Demo Mode", path="semantic_router")
 
-        # Step 1: Rule-based fast-path
+        # Step 1: Rule-based hard overrides (high-confidence signals)
         rule_res = self.rule_classifier.classify(query)
-        if rule_res.confidence > 0.8:
+        if rule_res.confidence >= 0.8:
             return rule_res
-            
+
         # Step 2: Semantic Router
+        semantic_res = self._run_semantic_classify(query)
+        # Step 3: Disagreement resolution
+        if semantic_res.confidence >= self.confidence_threshold:
+            if rule_res.confidence >= 0.7 and rule_res.label != semantic_res.label:
+                confidence_gap = abs(semantic_res.confidence - rule_res.confidence)
+                if confidence_gap <= self.disagreement_threshold:
+                    logger.info(
+                        f"[Disagreement] rule={rule_res.label}@{rule_res.confidence:.2f} "
+                        f"vs semantic={semantic_res.label}@{semantic_res.confidence:.2f} "
+                        f"(gap={confidence_gap:.2f}) → LLM escalation"
+                    )
+                    if self.client:
+                        return self._llm_fallback(query)
+            return semantic_res
+
+        # Step 4: Rule had moderate confidence but semantic was uncertain
+        if rule_res.confidence >= 0.7:
+            return rule_res
+
+        # Step 5: LLM fallback for truly ambiguous cases
+        if self.client:
+            return self._llm_fallback(query)
+        
+        return rule_res
+
+    def _run_semantic_classify(self, query: str) -> ClassifyResult:
+        """
+        Synchronous wrapper for the async semantic classification method.
+
+        Workflow:
+        - Step 1: Detect whether an asyncio event loop is already running
+        - Step 2: If running, apply nest_asyncio patch and run coroutine in existing loop
+        - Step 3: Otherwise, create a new event loop via asyncio.run()
+
+        Args:
+            query (str): Raw user query string.
+
+        Returns:
+            ClassifyResult: Semantic router result, or zero-confidence fallback on error.
+        """
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
                 import nest_asyncio
                 nest_asyncio.apply()
-            semantic_res = loop.run_until_complete(self._semantic_classify(query, None, None))
-        except Exception:
-            semantic_res = asyncio.run(self._semantic_classify(query, None, None))
-            
-        if semantic_res.confidence >= self.confidence_threshold:
-            return semantic_res
-            
-        # Step 3: LLM Fallback
-        if hasattr(self, "client") and self.client:
-            return self._llm_fallback(query)
+                return loop.run_until_complete(self._semantic_classify(query))
+            else:
+                return asyncio.run(self._semantic_classify(query))
+        except Exception as e:
+            logger.error(f"Semantic classification wrapper error: {e}")
+            return ClassifyResult(label="simple", confidence=0.0, reason="Semantic router error", path="semantic_router")
 
-        return rule_res
-    
-    async def _semantic_classify(
-        self,
-        query: str,
-        structural,
-        semantic,
-    ) -> ClassifyResult:
+    async def _semantic_classify(self, query: str) -> ClassifyResult:
         """
-        Giới thiệu: module phân loại bằng semantic router
+        Classify query using embedding similarity against trained centroids via PCA + classifier.
+
+        Workflow:
+        - Step 1: Generate query embedding via async OpenAI embeddings API
+        - Step 2: Apply PCA whitening transform
+        - Step 3: Run trained classifier to get probability distribution over labels
+
+        Args:
+            query (str): Raw user query string.
+
+        Returns:
+            ClassifyResult: Classification with semantic router confidence, or zero-confidence skip.
         """
         if self.pca is not None and self.classifier is not None and self.async_client:
             try:
@@ -179,24 +242,31 @@ class HybridClassifier(BaseClassifier):
                     )
             except Exception as e:
                 logger.error(f"Semantic classify error: {e}")
-                
-        return ClassifyResult(label="simple", confidence=0.0, reason="Skipped", path="semantic_router")
+        else:
+            return ClassifyResult(label="simple", confidence=0.0, reason="Skipped", path="semantic_router")
+
     def _llm_fallback(self, query: str) -> ClassifyResult:
-        """_summary_
+        """
+        Last-resort classification using LLM chat completion with few-shot prompt.
+
+        Workflow:
+        - Step 1: Build messages list with system prompt + few-shot examples + query
+        - Step 2: Call vLLM chat completion API with temperature=0 for deterministic output
+        - Step 3: Parse JSON response and validate label against VALID_LABELS
 
         Args:
-            query (str): _description_
+            query (str): Raw user query string.
 
         Returns:
-            ClassifyResult: _description_
+            ClassifyResult: LLM-based classification, or low-confidence fallback on error.
         """
-        if not hasattr(self, "client") or not self.client:
+        if not self.client:
             return ClassifyResult(label="simple", confidence=0.3, reason="LLM client not available", path="rule")
             
         messages = build_llm_messages(query)
         try:
             response = self.client.chat.completions.create(
-                model=self.model_name if hasattr(self, "model_name") else "Qwen/Qwen2.5-3B-Instruct",
+                model=self.model_name or "Qwen/Qwen2.5-3B-Instruct",
                 messages=messages,
                 max_tokens=100,
                 temperature=0.0
@@ -208,8 +278,10 @@ class HybridClassifier(BaseClassifier):
                 content = content[3:-3].strip()
                 
             data = json.loads(content)
+            raw_label = data.get("label", "simple")
+            label = raw_label if raw_label in VALID_LABELS else "simple"
             return ClassifyResult(
-                label=data.get("label", "simple"),
+                label=label,
                 confidence=float(data.get("confidence", 0.5)),
                 reason=data.get("reason", "Parsed from LLM"),
                 path="llm"

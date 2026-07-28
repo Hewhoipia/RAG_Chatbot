@@ -136,3 +136,4 @@ class RetrievalSignals:
                     self.is_ambiguous = True
                     self.ambiguity_reason = f"Broad keyword '{broad}' without specific context (semantic ambiguity)"
                     break
+        return

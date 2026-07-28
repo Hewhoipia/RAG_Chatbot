@@ -14,19 +14,19 @@ def main():
     # Test Rule Based
     print("\n--- Rule Based ---")
     classifier_rule = QueryClassifier.create(ClassifierMode.RULE_BASED)
-    res = classifier_rule.classify("Lãi suất vay mua nhà VCB?")
+    res = classifier_rule.classify("cho vay mua nhà VCB")
     print(res)
 
     # Test LLM Based (with Demo Mode fallback)
     print("\n--- LLM Based ---")
     classifier_llm = QueryClassifier.create(ClassifierMode.LLM_BASED)
-    res = classifier_llm.classify("Lãi suất vay mua nhà VCB?")
+    res = classifier_llm.classify("cho vay mua nhà VCB")
     print(res)
     
     # Test Hybrid
     print("\n--- Hybrid ---")
     classifier_hybrid = QueryClassifier.create(ClassifierMode.HYBRID)
-    res = classifier_hybrid.classify("Lãi suất vay mua nhà VCB?")
+    res = classifier_hybrid.classify("cho hỏi vay mua nhà và mua xe?")
     print(res)
     
 if __name__ == "__main__":
