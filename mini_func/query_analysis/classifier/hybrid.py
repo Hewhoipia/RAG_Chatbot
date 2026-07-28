@@ -1,18 +1,18 @@
-# Giới thiệu:
-# - Optioin B+ Hybrid: Semantic Router + rule overrides + LLM fallback
-# - đây là classifier khuyến nghị cho production
-# Mục đích:
-# 1. Fast-path
-# 2. hard overrides bằng rule-based khi có từ nối mạnh
-# 3. llm fallback khi điểm mấp mé hoặc xung đột
-# cách dùng:
-# from classifier.hybrid import HybridClassifier
-# classifier = HybridClassifier()
-# result = classifier.classify("...")
-# Lưu ý
-# - Cần file classifier_router (chạy build_router_cache.py trước)
-# - Cần vLLM server đang chạy tại Localhost:8011 cho LLM Fallback
-# - Nếu không tìm thấy centroids -> tự động fallback về Rule-based
+"""Giới thiệu:
+- Optioin B+ Hybrid: Semantic Router + rule overrides + LLM fallback
+- đây là classifier khuyến nghị cho production
+Mục đích:
+1. Fast-path
+2. hard overrides bằng rule-based khi có từ nối mạnh
+3. llm fallback khi điểm mấp mé hoặc xung đột
+cách dùng:
+from classifier.hybrid import HybridClassifier
+classifier = HybridClassifier()
+result = classifier.classify("...")
+Lưu ý
+- Cần file classifier_router (chạy build_router_cache.py trước)
+- Cần vLLM server đang chạy tại Localhost:8011 cho LLM Fallback
+- Nếu không tìm thấy centroids -> tự động fallback về Rule-based"""
 
 import os, json, logging, asyncio, numpy as np
 from typing import Optional, Dict

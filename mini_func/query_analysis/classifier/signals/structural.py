@@ -1,20 +1,20 @@
-# Giới thiệu
-# - Tier 1 Signals - phân tích cấu trúc câu (structural analysis)
-# - Bóc tách các dấu hiệu hình thái rõ ràng từ câu hỏi mà ko cần hiểu ngữ nghĩa sâu
-# Mục đích:
-# 1. Signal 1.1: phân tích cấu trúc cảm thán, WH-word, chào hỏi
-# 2. Signal 1.2: đếm mật độ thông tin entity counting
-# 3. Signal 1.3: độ dài câu (tie-breaker, yếu nhất)
-# 4. Signal 1.4: từ nối logic (so sánh, nhân quả, điều kiện - mạnh nhất)
-# Cách sử dụng:
-# from classifier.signals.structural import StructuralSignals
-# signals = StructuralSignals(query)
-# print(signals.has_strong_connectives) # true/false
-# print(signals.entity_count) # int
-# Lưu ý:
-# - tất cả patterns đã được compile sẵn lúc import để tối ưu tốc độ
-# - Signal 1.4 (connective words) là tín hiệu cực mạnh, dùng cho hard overrides
-# - signal 1.3 chỉ dùng làm tie-breaker khi các signal khác k thể quyết định
+"""Giới thiệu
+- Tier 1 Signals - phân tích cấu trúc câu (structural analysis)
+- Bóc tách các dấu hiệu hình thái rõ ràng từ câu hỏi mà ko cần hiểu ngữ nghĩa sâu
+Mục đích:
+1. Signal 1.1: phân tích cấu trúc cảm thán, WH-word, chào hỏi
+2. Signal 1.2: đếm mật độ thông tin entity counting
+3. Signal 1.3: độ dài câu (tie-breaker, yếu nhất)
+4. Signal 1.4: từ nối logic (so sánh, nhân quả, điều kiện - mạnh nhất)
+Cách sử dụng:
+from classifier.signals.structural import StructuralSignals
+signals = StructuralSignals(query)
+print(signals.has_strong_connectives) # true/false
+print(signals.entity_count) # int
+Lưu ý:
+- tất cả patterns đã được compile sẵn lúc import để tối ưu tốc độ
+- Signal 1.4 (connective words) là tín hiệu cực mạnh, dùng cho hard overrides
+- signal 1.3 chỉ dùng làm tie-breaker khi các signal khác k thể quyết định"""
 
 import re
 from dataclasses import dataclass, field

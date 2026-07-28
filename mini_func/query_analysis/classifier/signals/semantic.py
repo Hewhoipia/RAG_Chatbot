@@ -1,22 +1,22 @@
-# Giới thiệu:
-#- Tier 2 Signals - phân tích ngữ nghĩa (semantic Analysis)
-#- Kết hợp Intent taxonomy, domain coverage, và temporal signals
+"""Giới thiệu:
+- Tier 2 Signals - phân tích ngữ nghĩa (semantic Analysis)
+- Kết hợp Intent taxonomy, domain coverage, và temporal signals
 
-# Mục đích:
-#1. Signal 2.1: phân loại Intent Type (Factoid, definition, comparison, ...)
-#2. Signal 2.1+: phát hiện disguised intent (bề ngoài simple bản chất complex)
-#3. Signal 2.2: đếm domain coverage (single domain -> simple, multi -> complex)
-#4. Signal 2.3: temporal signals (thay đổi theo thời gian -> complex)
+Mục đích:
+1. Signal 2.1: phân loại Intent Type (Factoid, definition, comparison, ...)
+2. Signal 2.1+: phát hiện disguised intent (bề ngoài simple bản chất complex)
+3. Signal 2.2: đếm domain coverage (single domain -> simple, multi -> complex)
+4. Signal 2.3: temporal signals (thay đổi theo thời gian -> complex)
 
-# Cách sử dụng:
-# from classifier.signals.semantic import SemanticSignals
-# signals = SemanticSignals(query)
-# print (signals.intent_type) # "factoid" | ...
-# print (signals.domain_count) # int
+Cách sử dụng:
+from classifier.signals.semantic import SemanticSignals
+signals = SemanticSignals(query)
+print (signals.intent_type) # "factoid" | ...
+print (signals.domain_count) # int
 
-# Lưu ý:
-# - Sử dụng domain_banking.py để đếm domain
-# - Intent Taxonomy dựa trên Query analysis.txt (8 loại intent)
+Lưu ý:
+- Sử dụng domain_banking.py để đếm domain
+- Intent Taxonomy dựa trên Query analysis.txt (8 loại intent)"""
 
 from dataclasses import dataclass, field
 from ..keywords.domain_banking import count_domain_matches

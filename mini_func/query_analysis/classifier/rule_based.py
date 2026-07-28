@@ -1,13 +1,13 @@
-# Giói thiệu:
-# Option A phân loại câu hỏi bằng Regex và Keyword matching, không cần GPU hay model AI
-# Mục đích:
-# 1. Fast-path classifier: xử lý ~40% queries trong <5ms
-# 2. Cung cấp "Hard Override" signals cho Hybrid classifier (Option B+)
-# 3. Dùng standalone khi không có GPU/vLLM (offline testing)
-# Cách dùng:
-# from classifier.rule_based import RuleBasedClassifier
-# classifier = RuleBasedClassifier()
-# result = classifier.classify("...")
+"""Giói thiệu:
+Option A phân loại câu hỏi bằng Regex và Keyword matching, không cần GPU hay model AI
+Mục đích:
+1. Fast-path classifier: xử lý ~40% queries trong <5ms
+2. Cung cấp "Hard Override" signals cho Hybrid classifier (Option B+)
+3. Dùng standalone khi không có GPU/vLLM (offline testing)
+Cách dùng:
+from classifier.rule_based import RuleBasedClassifier
+classifier = RuleBasedClassifier()
+result = classifier.classify("...")"""
 
 import logging
 from .query_classifier import BaseClassifier, ClassifyResult
@@ -117,24 +117,22 @@ class RuleBasedClassifier (BaseClassifier):
                 path="rule"
             )
         
-        # B2b: Tiered ambiguous check
-        # phân tầng thay vì gán clarify đồng loạt
-        # signal 3.3: câu quá ngắn
-        # signal 3.4: câu chứa từ khoá bank quá rộng
-        if structural.word_count <= 2 and semantic.has_banking_terms:
+        # B2b: Tiered ambiguous check (Sử dụng RetrievalSignals)
+        # Phát hiện câu quá ngắn hoặc chứa từ khoá quá rộng
+        if retrieval.is_ambiguous:
             return ClassifyResult(
                 label="clarify",
                 confidence=0.8,
-                reason="Query too short (<3 words) with banking terms",
+                reason=retrieval.ambiguity_reason,
                 path="rule"
             )
         
-        # multi-domain -> complex
-        if semantic.domain_count >= 2:
+        # multi-domain / predicted sources -> complex
+        if retrieval.predicted_sources >= 2:
             return ClassifyResult(
                 label="complex",
                 confidence=0.85,
-                reason=f"Multi-domain ({semantic.domain_count} domains detected)",
+                reason=f"Multi-source prediction ({retrieval.predicted_sources} sources detected)",
                 path="rule",
             )
         

@@ -1,33 +1,33 @@
-# =============================================================================
-# FILE: classifier_prompt.py
-# =============================================================================
-#
-# GIỚI THIỆU (Introduction):
-# --------------------------
-# Chứa System Prompt Template cho LLM Fallback (Qwen3-30B-A3B).
-# Prompt được viết bằng tiếng Anh theo chuẩn Qwen3 HuggingFace.
-#
-# MỤC ĐÍCH (Purpose):
-# -------------------
-# 1. Cung cấp prompt chuẩn cho LLM classifier (Option B+ & C)
-# 2. Định nghĩa 4 nhãn phân loại và luật phân loại
-# 3. Chứa few-shot examples để LLM học pattern
-#
-# CÁCH SỬ DỤNG (Usage):
-# ----------------------
-# from classifier.prompts.classifier_prompt import CLASSIFIER_SYSTEM_PROMPT
-# messages = [
-#     {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
-#     {"role": "user", "content": user_query},
-# ]
-#
-# LƯU Ý (Notes):
-# ---------------
-# - Qwen3 non-thinking mode: enable_thinking=False
-# - Tham số khuyến nghị: temperature=0.7, top_p=0.8, top_k=20, min_p=0
-# - max_tokens=100 (chỉ cần JSON output ngắn gọn)
-# - Prompt viết tiếng Anh để LLM xử lý tốt hơn
-# =============================================================================
+"""=============================================================================
+FILE: classifier_prompt.py
+=============================================================================
+
+GIỚI THIỆU (Introduction):
+--------------------------
+Chứa System Prompt Template cho LLM Fallback (Qwen3-30B-A3B).
+Prompt được viết bằng tiếng Anh theo chuẩn Qwen3 HuggingFace.
+
+MỤC ĐÍCH (Purpose):
+-------------------
+1. Cung cấp prompt chuẩn cho LLM classifier (Option B+ & C)
+2. Định nghĩa 4 nhãn phân loại và luật phân loại
+3. Chứa few-shot examples để LLM học pattern
+
+CÁCH SỬ DỤNG (Usage):
+----------------------
+from classifier.prompts.classifier_prompt import CLASSIFIER_SYSTEM_PROMPT
+messages = [
+    {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
+    {"role": "user", "content": user_query},
+]
+
+LƯU Ý (Notes):
+---------------
+- Qwen3 non-thinking mode: enable_thinking=False
+- Tham số khuyến nghị: temperature=0.7, top_p=0.8, top_k=20, min_p=0
+- max_tokens=100 (chỉ cần JSON output ngắn gọn)
+- Prompt viết tiếng Anh để LLM xử lý tốt hơn
+============================================================================="""
 
 
 # =============================================================================

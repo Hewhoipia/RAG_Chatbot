@@ -1,35 +1,35 @@
-# =============================================================================
-# FILE: prototypes_vi.py
-# =============================================================================
-#
-# GIỚI THIỆU (Introduction):
-# --------------------------
-# Chứa danh sách câu mẫu (Anchor Queries / Prototype Sentences) cho
-# 4 nhóm phân loại chính: Chit-chat, Simple, Complex, Clarify.
-# Các câu này được dùng để tính Centroid Embedding vectors cho
-# Semantic Router (Qwen3-Embedding-4B).
-#
-# MỤC ĐÍCH (Purpose):
-# -------------------
-# 1. Làm dữ liệu gốc cho script build_router_cache.py
-# 2. Qwen3-Embedding-4B sẽ embedding các câu này → tính trung bình → 4 Centroids
-# 3. Khi user hỏi, so sánh Cosine Similarity với 4 Centroids để phân loại
-#
-# CÁCH SỬ DỤNG (Usage):
-# ----------------------
-# from classifier.keywords.prototypes_vi import (
-#     CHITCHAT_SENTENCES, SIMPLE_SENTENCES, COMPLEX_SENTENCES,
-#     CLARIFY_SENTENCES
-# )
-#
-# LƯU Ý (Notes):
-# ---------------
-# - Mỗi nhóm nên có 10-15 câu đa dạng, phủ đều các pattern phổ biến
-# - Câu mẫu nên sát thực tế nhất có thể (domain Ngân hàng Shinhan)
-# - Khi thêm/sửa câu mẫu, cần chạy lại build_router_cache.py
-# - [V5] Thêm CLARIFY_SENTENCES cho centroid thứ 4 (bare noun, mơ hồ)
-# - [V5] Trộn 30% câu chat-style (không dấu câu) vào SIMPLE + COMPLEX
-# =============================================================================
+"""=============================================================================
+FILE: prototypes_vi.py
+=============================================================================
+
+GIỚI THIỆU (Introduction):
+--------------------------
+Chứa danh sách câu mẫu (Anchor Queries / Prototype Sentences) cho
+4 nhóm phân loại chính: Chit-chat, Simple, Complex, Clarify.
+Các câu này được dùng để tính Centroid Embedding vectors cho
+Semantic Router (Qwen3-Embedding-4B).
+
+MỤC ĐÍCH (Purpose):
+-------------------
+1. Làm dữ liệu gốc cho script build_router_cache.py
+2. Qwen3-Embedding-4B sẽ embedding các câu này → tính trung bình → 4 Centroids
+3. Khi user hỏi, so sánh Cosine Similarity với 4 Centroids để phân loại
+
+CÁCH SỬ DỤNG (Usage):
+----------------------
+from classifier.keywords.prototypes_vi import (
+    CHITCHAT_SENTENCES, SIMPLE_SENTENCES, COMPLEX_SENTENCES,
+    CLARIFY_SENTENCES
+)
+
+LƯU Ý (Notes):
+---------------
+- Mỗi nhóm nên có 10-15 câu đa dạng, phủ đều các pattern phổ biến
+- Câu mẫu nên sát thực tế nhất có thể (domain Ngân hàng Shinhan)
+- Khi thêm/sửa câu mẫu, cần chạy lại build_router_cache.py
+- [V5] Thêm CLARIFY_SENTENCES cho centroid thứ 4 (bare noun, mơ hồ)
+- [V5] Trộn 30% câu chat-style (không dấu câu) vào SIMPLE + COMPLEX
+============================================================================="""
 
 
 # =============================================================================
