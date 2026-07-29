@@ -57,14 +57,25 @@ except ImportError:
     logger.error("❌ Thiếu thư viện scikit-learn.")
     raise
 
-# Import config_v7
-from config_v7 import config
+# Import config
+from config import config
 
 async def build_centroids():
     """
-    Giới thiệu: Tập lệnh tiền xử lý huấn luyện mô hình phân loại tuyến tính trên không gian vector đã làm trắng (Whitened).
-    
-    Mục đích sử dụng: Tạo file Cache chứa tham số PCA và Logistic Regression giúp định tuyến chính xác với Latency <1ms.
+    Offline pre-processing script to train and build PCA-whitening + Logistic Regression router cache.
+
+    Workflow:
+    - Step 1: Load prototype sentences for 4 query types (chit-chat, simple, complex, clarify)
+    - Step 2: Connect to vLLM embedding server and encode all sentences into vector embeddings
+    - Step 3: Run PCA Whitening to normalize vector space and reduce anisotropy overlap
+    - Step 4: Train a Logistic Regression linear probe classifier on top of whitened embeddings
+    - Step 5: Save trained PCA and Logistic Regression pipeline assets into classifier_router.pkl and metadata JSON
+
+    Args:
+        None
+
+    Returns:
+        dict: Trained router assets containing pca, classifier, and classes.
     """
     logger.info(f"=== BUILD ROUTER CLASSIFIER CACHE ===")
 

@@ -1,23 +1,22 @@
-# =============================================================================
-# FILE: text_generate_prod_vllm_client.py
-# DESCRIPTION: LLM Client for vLLM Server - Qwen3.5-4B with Demo Mode support
-# VERSION: 7.1-Client (20+ Concurrent Users, Non-Thinking Mode + thinking emulation)
-#
-# IMPLEMENTED CLASSES & FUNCTIONS:
-# - parse_thinking_response(response): Extracts the reasoning tags <think>...</think> from answers.
-# - ClientMetrics: Thread-safe metrics collector logging requests, token counts, latency and errors.
-# - LLMDeploymentV7VLLMClient: Connects to the local vLLM OpenAI-compatible server.
-#   * generate_async(): Async call returning clean text output. Supports demo mode simulation.
-#   * generate_stream(): Async generator yielding token chunks. In demo mode, it mocks both thinking and answering phases.
-#   * get_mock_response(): Intent-matching simulator formulating mock Shinhan Bank responses and reasoning traces.
-#   * health_check(): Tests server availability or reports local mock status.
-# - ChatEngineV7VLLMClient: Formats prompts, parses citations and forwards inputs.
-#   * create_messages(): Formats prompts containing user queries and context metadata.
-#   * _process_sources(): Decodes document nodes to generate normalized URL-compatible citations.
-#   * generate_response() / generate_response_stream(): Performs completion tasks.
-#   * generate_direct_response() / generate_direct_response_stream(): Bypasses document database query steps for casual talk.
-# =============================================================================
+"""=============================================================================
+FILE: text_generate_prod_vllm_client.py
+DESCRIPTION: LLM Client for vLLM Server - Qwen3.5-4B with Demo Mode support
+VERSION: 7.1-Client (20+ Concurrent Users, Non-Thinking Mode + thinking emulation)
 
+IMPLEMENTED CLASSES & FUNCTIONS:
+- parse_thinking_response(response): Extracts the reasoning tags <think>...</think> from answers.
+- ClientMetrics: Thread-safe metrics collector logging requests, token counts, latency and errors.
+- LLMDeploymentV7VLLMClient: Connects to the local vLLM OpenAI-compatible server.
+  * generate_async(): Async call returning clean text output. Supports demo mode simulation.
+  * generate_stream(): Async generator yielding token chunks. In demo mode, it mocks both thinking and answering phases.
+  * get_mock_response(): Intent-matching simulator formulating mock Shinhan Bank responses and reasoning traces.
+  * health_check(): Tests server availability or reports local mock status.
+- ChatEngineV7VLLMClient: Formats prompts, parses citations and forwards inputs.
+  * create_messages(): Formats prompts containing user queries and context metadata.
+  * _process_sources(): Decodes document nodes to generate normalized URL-compatible citations.
+  * generate_response() / generate_response_stream(): Performs completion tasks.
+  * generate_direct_response() / generate_direct_response_stream(): Bypasses document database query steps for casual talk.
+============================================================================="""
 
 import asyncio
 import logging

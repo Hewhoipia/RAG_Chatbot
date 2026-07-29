@@ -76,10 +76,19 @@ except ImportError:
 
 # HELPER FUNCs
 def get_docling_metadata(node):
-    """_summary_
+    """
+    Extracts metadata securely from document nodes or dictionaries.
+
+    Workflow:
+    - Check if node has metadata attribute.
+    - Fallback to dictionary get method.
+    - Return empty dictionary if not found.
 
     Args:
-        node (_type_): _description_
+        node (Any): The document node or dictionary containing metadata.
+
+    Returns:
+        dict: The extracted metadata.
     """
     if hasattr(node, "metadata"):
         return node.metadata
@@ -89,15 +98,22 @@ def get_docling_metadata(node):
     
 # RETRIEVAL ENGINE
 class RetrievalEngine:
-    """_summary_
+    """
+    Base retrieval engine for vector search and reranking.
+
+    Workflow:
+    - Manage static node cache.
+    - Setup retriever and reranker.
+    - Provide utility methods for node extraction.
     """
     def __init__(self, top_k, top_pick, persist_dir = None):
-        """_summary_
+        """
+        Initializes the retrieval engine with specific top_k and configurations.
 
         Args:
-            top_k (_type_): _description_
-            top_pick (_type_): _description_
-            persist_dir (_type_, optional): _description_. Defaults to None.
+            top_k (int): Number of documents to retrieve initially.
+            top_pick (int): Number of top documents to keep after reranking.
+            persist_dir (str, optional): Directory path for storing local cache and indices. Defaults to None.
         """
         self.top_k = top_k
         self.top_pick = top_pick
@@ -126,9 +142,21 @@ class RetrievalEngine:
             self._cached_nodes = []
     
     def _get_retriever(self):
-        """_summary_
         """
-        if self.demo_mode or load_vector_index_from_qdrant is None:
+        Initializes and returns the Qdrant retriever index.
+
+        Workflow:
+        - Check demo mode or dependency availability.
+        - Load Qdrant vector index.
+        - Configure index as a retriever.
+
+        Returns:
+            Retriever: The initialized Qdrant retriever or None.
+        """
+        if self.demo_mode:
+            return None
+        if load_vector_index_from_qdrant is None:
+            logger.warning("load_vector_index_from_qdrant not available (llama_index not installed).")
             return None
         try:
             index = load_vector_index_from_qdrant()
@@ -139,33 +167,54 @@ class RetrievalEngine:
         return None
         
     def _get_reranker (self):
-        """_summary_
+        """
+        Initializes and returns the reranker model.
+
+        Returns:
+            Reranker: The configured reranker model or None.
         """
         return None
         
     @property
     def cached_nodes(self):
-        """_summary_
+        """
+        Gets the locally cached document nodes.
+
+        Returns:
+            list: List of cached nodes.
         """
         return self._cached_nodes
         
     @property
     def retriever(self):
-        """_summary_
+        """
+        Gets the initialized search retriever.
 
         Returns:
-            _type_: _description_
+            Retriever: The Qdrant retriever instance.
         """
         return self._retriever
     
     @property
     def reranker(self):
-        """_summary_
+        """
+        Gets the initialized reranker.
+
+        Returns:
+            Reranker: The reranker instance.
         """
         return self._reranker
     
     def load_nodes_index (self):
-        """_summary_
+        """
+        Loads or generates a node index mapping from the local cache.
+
+        Workflow:
+        - Check if index file exists and load it.
+        - Otherwise, create a new mapping and save to file.
+
+        Returns:
+            dict: Mapping of node IDs to their cache indices.
         """
         if os.path.exists(self.node_index_path):
             with open(self.node_index_path, 'r') as f:
@@ -178,10 +227,14 @@ class RetrievalEngine:
     
     @staticmethod
     def get_node_content(node):
-        """_summary_
+        """
+        Safely extracts raw text content from a node object or dictionary.
 
         Args:
-            node (_type_): _description_
+            node (Any): The document node or dict.
+
+        Returns:
+            str: Extracted text content.
         """
         if hasattr(node, "get_content"):
             return node.get_content(metadata_mode="none")
@@ -190,12 +243,16 @@ class RetrievalEngine:
         return str(node)
     
     def get_neighbor_nodes(self, retrieved_nodes, backward_context_window, forward_context_window):
-        """_summary_
+        """
+        Retrieves adjacent nodes for expanded context around search results.
 
         Args:
-            retrieved_nodes (_type_): _description_
-            backward_context_window (_type_): _description_
-            forward_context_window (_type_): _description_
+            retrieved_nodes (list): The list of initially retrieved nodes.
+            backward_context_window (int): Number of preceding nodes to include.
+            forward_context_window (int): Number of succeeding nodes to include.
+
+        Returns:
+            list: The list of nodes including neighbor context.
         """
         return retrieved_nodes
         
@@ -290,16 +347,28 @@ class RetrievalEngine:
         return mock_docs
 
     async def search(self, query, reranking=False, neighbor=None, get_document_from_nodes=None):
-        """_summary_
+        """
+        Executes a vector search query against the retriever index.
+
+        Workflow:
+        - Check demo mode for mock data.
+        - Ensure retriever is available.
+        - Retrieve nodes and apply optional reranking.
 
         Args:
-            query (_type_): _description_
-            reranking (bool, optional): _description_. Defaults to False.
-            neighbor (_type_, optional): _description_. Defaults to None.
-            get_document_from_nodes (_type_, optional): _description_. Defaults to None.
+            query (str): The search query string.
+            reranking (bool, optional): Whether to apply post-retrieval reranking. Defaults to False.
+            neighbor (Any, optional): Configuration for neighbor context retrieval. Defaults to None.
+            get_document_from_nodes (Any, optional): Additional document processing logic. Defaults to None.
+
+        Returns:
+            list: Formatted search results with text and metadata.
         """
-        if self.demo_mode or self._retriever is None:
+        if self.demo_mode:
             return self.get_mock_nodes(query)
+        if self._retriever is None:
+            logger.error("Retriever not initialized. Qdrant may not be running.")
+            raise RuntimeError("Search retriever not available. Ensure Qdrant is running.")
             
         try:
             query_bundle = QueryBundle(query_str=query)
@@ -328,14 +397,21 @@ class CircuitState(Enum):
     HALF_OPEN = "half_open"
 
 class CircuitBreaker:
-    """_summary_
+    """
+    Implements a circuit breaker pattern to prevent cascading failures.
+
+    Workflow:
+    - Monitor success and failure counts.
+    - Transition state to OPEN upon threshold breach.
+    - Transition to HALF_OPEN after recovery timeout.
     """
     def __init__(self, failure_threshold = 5, recovery_timeout = 30):
-        """_summary_
+        """
+        Initializes the circuit breaker configuration.
 
         Args:
-            failure_threshold (int, optional): _description_. Defaults to 5.
-            recovery_timeout (int, optional): _description_. Defaults to 30.
+            failure_threshold (int, optional): Number of failures before tripping. Defaults to 5.
+            recovery_timeout (int, optional): Seconds to wait before attempting recovery. Defaults to 30.
         """
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -346,10 +422,11 @@ class CircuitBreaker:
     
     @property
     def state(self):
-        """_summary_
+        """
+        Gets the current operational state of the circuit breaker.
 
         Returns:
-            _type_: _description_
+            CircuitState: Current state (CLOSED, OPEN, HALF_OPEN).
         """
         with self._lock:
             if self._state == CircuitState.OPEN:
@@ -359,7 +436,8 @@ class CircuitBreaker:
             return self._state
         
     def record_success(self):
-        """_summary_
+        """
+        Records a successful operation and resets failure counters.
         """
         with self._lock:
             if self._state == CircuitState.HALF_OPEN:
@@ -367,7 +445,8 @@ class CircuitBreaker:
             self._failures = 0
             
     def record_failure(self):
-        """_summary_
+        """
+        Records a failed operation and trips the breaker if threshold is met.
         """
         with self._lock:
             self._failures += 1
@@ -376,15 +455,17 @@ class CircuitBreaker:
                 self._state = CircuitState.OPEN
                 
     def is_allowed(self):
-        """_summary_
+        """
+        Checks if requests are currently allowed to proceed.
+
+        Returns:
+            bool: True if CLOSED or HALF_OPEN, False if OPEN.
         """
         return self.state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
 class CircuitOpenError(Exception):
-    """_summary_
-
-    Args:
-        Exception (_type_): _description_
+    """
+    Exception raised when the circuit breaker is in the OPEN state.
     """
     pass
 
@@ -407,10 +488,17 @@ except ImportError:
     
 # REDIS SEMANTIC CACHE
 class RedisSemanticCache:
-    """_summary_
+    """
+    Redis-based semantic caching layer for search queries.
+
+    Workflow:
+    - Encode query into embedding.
+    - Check Redis or memory cache for exact or semantic matches.
+    - Fallback to in-memory dictionary if Redis is unavailable.
     """
     def __init__(self):
-        """_summary_
+        """
+        Initializes cache configuration, clients, and embedding models.
         """
         self.enabled = config.redis.enabled
         self.demo_mode = config.demo_mode or not REDIS_AVAILABLE or not self.enabled
@@ -424,7 +512,8 @@ class RedisSemanticCache:
         self._create_index()
     
     def _init_redis(self):
-        """_summary_
+        """
+        Connects to the Redis server and initializes the client.
         """
         if self.demo_mode:
             return
@@ -442,7 +531,8 @@ class RedisSemanticCache:
             self.demo_mode = True
         
     def _init_encoder(self):
-        """_summary_
+        """
+        Initializes the sentence transformer for query embeddings.
         """
         self.encoder = None
         if config.cache.enabled:
@@ -454,15 +544,20 @@ class RedisSemanticCache:
                 logger.warning(f"Could not load SentenceTransformer encoder: {e}. Using string-matching.")
         
     def _create_index(self):
-        """_summary_
+        """
+        Creates vector index structures in the cache (placeholder).
         """
         pass
         
     async def _encode_async(self, query):
-        """_summary_
+        """
+        Asynchronously generates an embedding for a text query.
 
         Args:
-            query (_type_): _description_
+            query (str): The input search query.
+
+        Returns:
+            list: The generated vector embedding.
         """
         if self.encoder is None:
             return None
@@ -470,10 +565,14 @@ class RedisSemanticCache:
         return await loop.run_in_executor(self._executor, self.encoder.encode, query)
     
     async def get (self, query):
-        """_summary_
+        """
+        Retrieves cached response for a given query string.
 
         Args:
-            query (_type_): _description_
+            query (str): The search query.
+
+        Returns:
+            str: Cached response content or None.
         """
         query_clean = query.strip().lower()
         if self.demo_mode:
@@ -496,11 +595,12 @@ class RedisSemanticCache:
             return None
         
     async def put (self, query, response):
-        """_summary_
+        """
+        Stores a query and its corresponding response in the cache.
 
         Args:
-            query (_type_): _description_
-            response (_type_): _description_
+            query (str): The search query.
+            response (str): The computed response or search results.
         """
         query_clean = query.strip().lower()
         if self.demo_mode:
@@ -513,7 +613,11 @@ class RedisSemanticCache:
             logger.error(f"Redis set cache failed: {e}")
         
     def get_stats(self):
-        """_summary_
+        """
+        Returns performance and status metrics of the semantic cache.
+
+        Returns:
+            dict: Cache metrics including hits, misses, and mode.
         """
         return {
             "hits": self.hits,
@@ -523,7 +627,8 @@ class RedisSemanticCache:
         }
         
     def close(self):
-        """_summary_
+        """
+        Shuts down executors and terminates Redis connections.
         """
         self._executor.shutdown(wait=False)
         if not self.demo_mode and hasattr(self, 'redis_client'):
@@ -533,21 +638,25 @@ class RedisSemanticCache:
                 pass
 
 class RetrievalEngineV7(RetrievalEngine):
-    """_summary_
+    """
+    Advanced production retrieval engine with caching and circuit breaking.
 
-    Args:
-        RetrievalEngine (_type_): _description_
+    Workflow:
+    - Inherit base vector search capabilities.
+    - Wraps operations with circuit breaker checks.
+    - Integrate multi-query parallel processing.
     """
     def __init__(self, top_k, top_pick, persist_dir=None,
                  enable_cache=True, enable_circuit_breaker=True):
-        """_summary_
+        """
+        Initializes the V7 engine with integrated caching and protection features.
 
         Args:
-            top_k (_type_): _description_
-            top_pick (_type_): _description_
-            persist_dir (_type_, optional): _description_. Defaults to None.
-            enable_cache (bool, optional): _description_. Defaults to True.
-            enable_circuit_breaker (bool, optional): _description_. Defaults to True.
+            top_k (int): Number of nodes to retrieve from vector store.
+            top_pick (int): Final number of nodes after reranking.
+            persist_dir (str, optional): Directory path for local persistence. Defaults to None.
+            enable_cache (bool, optional): Toggle semantic cache usage. Defaults to True.
+            enable_circuit_breaker (bool, optional): Toggle circuit breaker protection. Defaults to True.
         """
         super().__init__(top_k, top_pick, persist_dir)
         self.enable_cache = enable_cache
@@ -559,12 +668,21 @@ class RetrievalEngineV7(RetrievalEngine):
         return await self.search_with_cache(query)
         
     async def search_with_cache(self, query, reranking=False, neighbor=None):
-        """_summary_
+        """
+        Executes a search operation protected by circuit breakers.
+
+        Workflow:
+        - Verify circuit breaker state.
+        - Run underlying search operation.
+        - Record success or failure metrics.
 
         Args:
-            query (_type_): _description_
-            reranking (bool, optional): _description_. Defaults to False.
-            neighbor (_type_, optional): _description_. Defaults to None.
+            query (str): The search query.
+            reranking (bool, optional): Whether to apply reranking. Defaults to False.
+            neighbor (Any, optional): Configuration for neighbor context retrieval. Defaults to None.
+
+        Returns:
+            list: Final formatted search results.
         """
         if self.circuit_breaker and not self.circuit_breaker.is_allowed():
             logger.warning("Circuit breaker is OPEN. Fast failing search.")
@@ -587,16 +705,22 @@ class RetrievalEngineV7(RetrievalEngine):
         neighbor: dict = None,
         timeout: float = None,
     ) -> Tuple[List, bool]:
-        """_summary_
+        """
+        Executes parallel searches for multiple variations of a query.
+
+        Workflow:
+        - Dispatch concurrent async tasks for each sub-query.
+        - Gather and enforce timeout limits.
+        - Merge and deduplicate results by metadata keys.
 
         Args:
-            queries (List[str]): _description_
-            reranking (bool, optional): _description_. Defaults to True.
-            neighbor (dict, optional): _description_. Defaults to None.
-            timeout (float, optional): _description_. Defaults to None.
+            queries (List[str]): List of query string variations.
+            reranking (bool, optional): Apply reranking to results. Defaults to True.
+            neighbor (dict, optional): Neighbor context config. Defaults to None.
+            timeout (float, optional): Max execution time in seconds. Defaults to None.
 
         Returns:
-            Tuple[List, bool]: _description_
+            Tuple[List, bool]: Deduplicated combined results and timeout indicator flag.
         """
         tasks = [self.search_with_cache(q, reranking=reranking, neighbor=neighbor) for q in queries]
         try:
@@ -624,7 +748,11 @@ class RetrievalEngineV7(RetrievalEngine):
             return [], False
         
     def get_stats(self):
-        """_summary_
+        """
+        Aggregates operational metrics across cache and circuit breaker components.
+
+        Returns:
+            dict: Combined system state and metrics dictionary.
         """
         return {
             "cache": self.cache.get_stats() if self.cache else "disabled",

@@ -175,6 +175,9 @@ class VLLMConfig:
     model_name: str = field(default_factory=lambda: get_env("VLLM_MODEL_NAME", "Qwen3.5-4B"))
     gpu_memory_utilization: float = field(default_factory=lambda: get_env_float("VLLM_GPU_MEMORY_UTILIZATION", 0.55))
     max_num_seqs: int = field(default_factory=lambda: get_env_int("VLLM_MAX_NUM_SEQS", 25))
+    base_url_embedding: str = field(default_factory=lambda: get_env("VLLM_BASE_URL_EMBEDDING", "http://localhost:8012/v1"))
+    model_name_embedding: str = field(default_factory=lambda: get_env("VLLM_MODEL_NAME_EMBEDDING", "bge-m3"))
+    api_key_embedding: str = field(default_factory=lambda: get_env("VLLM_API_KEY_EMBEDDING", "EMPTY"))
     
 # CACHE CONFIG
 @dataclass

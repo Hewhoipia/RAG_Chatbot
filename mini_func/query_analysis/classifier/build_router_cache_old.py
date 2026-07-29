@@ -50,8 +50,8 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
-# Import config_v7
-from config_v7 import config
+# Import config
+from config import config
 
 async def build_centroids():
     """

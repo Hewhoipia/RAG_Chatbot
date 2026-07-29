@@ -8,32 +8,40 @@ echo "=========================================================="
 
 # 1. Load configurations
 if [ -f .env ]; then
-    export $(cat .env | grep -v '#' | xargs)
+    set -a
+    source .env
+    set +a
 fi
 
 # Set default demo mode to true if not explicitly set
-export RAG_DEMO_MODE=${RAG_DEMO_MODE:-"true"}
+export RAG_DEMO_MODE=${RAG_DEMO_MODE:-"True"}
 
 echo "Environment Mode: DEMO_MODE=$RAG_DEMO_MODE"
 echo ""
 
-# 2. Start PostgreSQL Database
-if [ "$RAG_DEMO_MODE" = "false" ]; then
-    echo "[Step 1/3] Starting Database services..."
-    # Attempting to start local PostgreSQL service (macOS / Homebrew example)
+# 2. Start PostgreSQL, Redis, and Qdrant services
+if [ "$RAG_DEMO_MODE" = "False" ]; then
+    echo "[Step 1/3] Starting Database, Cache, and Vector DB services..."
     if command -v brew &> /dev/null; then
+        echo "Starting local PostgreSQL..."
         brew services start postgresql
+        echo "Starting local Redis..."
+        brew services start redis
+        echo "Starting local Qdrant..."
+        brew services start qdrant
         sleep 2
     else
-        echo "WARNING: PostgreSQL starting command varies by OS."
-        echo "Ensure PostgreSQL is running locally on port 5432."
+        echo "WARNING: Homebrew not found. Ensure the following are running locally:"
+        echo "  - PostgreSQL on port 5432"
+        echo "  - Redis on port 6379"
+        echo "  - Qdrant on port 6333"
     fi
 else
-    echo "[Step 1/3] Running in DEMO MODE. Skipping local physical Database startup."
+    echo "[Step 1/3] Running in DEMO MODE. Skipping local Database, Cache, and Qdrant startup."
 fi
 
 # 3. Start local vLLM servers
-if [ "$RAG_DEMO_MODE" = "false" ]; then
+if [ "$RAG_DEMO_MODE" = "False" ]; then
     echo "[Step 2/3] Starting local vLLM LLM and Embedding servers..."
     bash script/vllm_server_start.sh &
     VLLM_PID=$!

@@ -72,19 +72,6 @@ except ImportError:
     DEFAULT_RESPONSE_CLASS = JSONResponse
     print ("orjson not installed, using standard JSONResponse")
 
-# DOCX handling
-try:
-    from docx import Document
-    from docx.shared import RGBColor
-    from docx.enum.text import WD_COLOR_INDEX
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
-    Document = None
-    RGBColor = None
-    WD_COLOR_INDEX = None
-    logger.warning("python-docx package not found. Highlighted document serving will be unavailable.")
-
 # Local modules - vllm CLIENT
 from config import config
 from connect_db_vllm import DatabaseManager
@@ -109,6 +96,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# DOCX handling
+try:
+    from docx import Document
+    from docx.shared import RGBColor
+    from docx.enum.text import WD_COLOR_INDEX
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    Document = None
+    RGBColor = None
+    WD_COLOR_INDEX = None
+    logger.warning("python-docx package not found. Highlighted document serving will be unavailable.")
 
 # GLOBAL VARIABLES
 # Directories
@@ -344,6 +344,19 @@ async def lifespan (app: FastAPI):
         logger.info("Query Transform client initialized.")
     except Exception as e:
         logger.error(f"Failed to initialize Query Transform client: {e}")
+
+    # 6. Init Query Classifier
+    if config.query_analysis.enabled:
+        try:
+            from mini_func.query_analysis.classifier.hybrid import HybridClassifier
+            classifier = HybridClassifier(
+                vllm_base_url=config.vllm.base_url,
+                model_name=config.vllm.model_name,
+            )
+            app.state.components["classifier"] = classifier
+            logger.info("Query Classifier (HybridClassifier) initialized.")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Query Classifier: {e}")
 
     yield
 
@@ -594,14 +607,148 @@ async def chat_stream_thinking(request: Request, chat_request: ChatRequest):
         thinking_content = ""
         answer_content = ""
         query_type = None
+        
+        async def _persist_to_db():
+            """Save conversation and query metadata to database."""
+            if not db:
+                return
+            try:
+                response_time = datetime.now() - t0
+                await db.queue_conversation(
+                    conversation_id=conversation_id,
+                    question=user_input,
+                    response=answer_content,
+                    response_time=response_time,
+                    ip=client_ip,
+                )
+            except Exception as e:
+                logger.error(f"Failed to save conversation: {e}")
+            if query_type:
+                try:
+                    if query_type in ("simple", "complex"):
+                        try:
+                            domains = await query_theme(user_input)
+                            domain_json = json.dumps(domains) if domains else None
+                        except Exception:
+                            domain_json = None
+                        await db.save_query_type(
+                            conversation_id=conversation_id,
+                            query_type=query_type,
+                            domain=domain_json,
+                        )
+                    else:
+                        await db.save_query_type(
+                            conversation_id=conversation_id,
+                            query_type=query_type,
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to save query type: {e}")
         try:
+            if config.demo_mode:
+                if classifier and config.query_analysis.enabled:
+                    res = classifier.classify(user_input)
+                    query_type = res.label
+                yield f"data: {json.dumps({'type': 'thinking', 'content': 'This is a demo thinking step...'})}\n\n"
+                await asyncio.sleep(0.5)
+                yield f"data: {json.dumps({'type': 'thinking', 'content': ' Done thinking!'})}\n\n"
+                
+                answer_content = f"This is a dummy response for demo mode. Your query '{user_input}' was classified as '{query_type}'."
+                words = answer_content.split()
+                for w in words:
+                    yield f"data: {json.dumps({'type': 'answer', 'content': w + ' '})}\n\n"
+                    await asyncio.sleep(0.05)
+                yield f"data: {json.dumps({'type': 'done', 'thinking_time': 1, 'conversation_id': conversation_id})}\n\n"
+                return
+
             if classifier and config.query_analysis.enabled:
                 try:
-                    pass
+                    res = classifier.classify(user_input)
+                    query_type = res.label
+                    if query_type in ("chit-chat", "clarify"):
+                        # Direct LLM streaming (no retrieval, no thinking)
+                        async for event in chat_engine.generate_direct_response_stream(
+                            user_input, query_type
+                        ):
+                            content = event.get("content", "")
+                            answer_content += content
+                            yield f"data: {json.dumps(event)}\n\n"
+                        yield f"data: {json.dumps({'type': 'sources', 'sources': []})}\n\n"
+                        yield f"data: {json.dumps({'type': 'done', 'conversation_id': conversation_id, 'query_type': query_type, 'thinking_time': 0})}\n\n"
+                        asyncio.create_task(_persist_to_db())
+                        return
+                    elif query_type in ("simple", "complex"):
+                        # multi-query retrieval + thinking streaming
+                        from mini_func.query_routing.query_transform import (
+                            multi_query_rewrite, query_decomposition, step_back_query
+                        )
+                        if (query_type == "simple"):
+                            rewrites = await multi_query_rewrite(
+                                transform_client, user_input,
+                                n=config.query_analysis.simple_rewrite_count
+                            )
+                            all_queries = [user_input] + rewrites
+                        else:
+                            rewrites, decomps, step_back = await asyncio.gather(
+                                multi_query_rewrite(transform_client, user_input, n=config.query_analysis.complex_rewrite_count),
+                                query_decomposition(transform_client, user_input, n=config.query_analysis.complex_decomp_count),
+                                step_back_query(transform_client, user_input)
+                            )
+                            all_queries = [user_input] + rewrites + decomps
+                            if step_back:
+                                all_queries.append(step_back)
+                        retrieved_nodes, _ = await retrieval.search_multi_query(
+                            queries = all_queries, reranking=True,
+                            neighbor={"backward_context_window": config.retrieval.backward_context_window, "forward_context_window": config.retrieval.forward_context_window}
+                        )
+                        async for event in chat_engine.generate_response_stream(
+                            user_input, retrieved_nodes, enable_thinking=enable_thinking
+                        ):
+                            if event["type"] == "thinking":
+                                thinking_content += event["content"]
+                            elif event["type"] == "answer":
+                                answer_content += event["content"]
+                            yield f"data: {json.dumps(event)}\n\n"
+                        sources = chat_engine._process_sources(retrieved_nodes)
+                        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+                        # FOLLOW_UPS
+                        questions = await generate_smart_follow_ups(chat_engine.llm_client, user_input, answer_content)
+                        if questions:
+                            yield f"data: {json.dumps({'type': 'follow_ups', 'questions': questions})}\n\n"
+                            
+                        thinking_time = (datetime.now() - thinking_start).total_seconds() if thinking_content else 0
+                        yield f"data: {json.dumps({'type': 'done', 'conversation_id': conversation_id, 'query_type': query_type, 'thinking_time': round(thinking_time, 2)})}\n\n"
+                        asyncio.create_task(_persist_to_db())
+                        return
                 except Exception as e:
-                    pass
+                    logger.warning(f"Thinking stream query analysis error, falling back: {e}")
+            # fallback
+            if retrieval:
+                retrieved_nodes, _ = await retrieval.search_with_cache(
+                    query = user_input, reranking = True,
+                    neighbor={"backward_context_window": config.retrieval.backward_context_window, "forward_context_window": config.retrieval.forward_context_window}
+                )
+                async for event in chat_engine.generate_response_stream(
+                    user_input, retrieved_nodes, enable_thinking=enable_thinking
+                ):
+                    if event["type"] == "thinking":
+                        thinking_content += event["content"]
+                    elif event["type"] == "answer":
+                        answer_content += event["content"]
+                    yield f"data: {json.dumps(event)}\n\n"
+                sources = chat_engine._process_sources(retrieved_nodes)
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+                # FOLLOW_UPS
+                questions = await generate_smart_follow_ups(chat_engine.llm_client, user_input, answer_content)
+                if questions:
+                    yield f"data: {json.dumps({'type': 'follow_ups', 'questions': questions})}\n\n"
+                    
+                thinking_time = (datetime.now() - thinking_start).total_seconds() if thinking_content else 0
+                yield f"data: {json.dumps({'type': 'done', 'conversation_id': conversation_id, 'query_type': query_type, 'thinking_time': round(thinking_time, 2)})}\n\n"
+                asyncio.create_task(_persist_to_db())
         except Exception as e:
-            pass
+            logger.error(f"Stream thinking error: {e}")
+            yield f"data: {json.dumps({'type': 'answer', 'content': 'System error occurred.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'thinking_time': 0, 'conversation_id': conversation_id})}\n\n"
         
     return StreamingResponse(
         generate_stream_with_thinking(), 
