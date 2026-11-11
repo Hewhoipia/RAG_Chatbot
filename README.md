@@ -6,7 +6,7 @@ This document outlines the workflow required to package, export, transfer, and r
 
 ## Architecture Overview
 
-The system runs on FastAPI and supports hybrid RAG queries using a PostgreSQL log database, a Redis semantic cache, and a vLLM server. It features a robust **Demo Mode** (`RAG_DEMO_MODE=true` by default) which allows the entire pipeline to function offline with simulated banking policies, local dictionary-based caching, and simulated model completions without needing connection to a real database or LLM container.
+The system runs on FastAPI and supports hybrid RAG queries using a PostgreSQL log database, a Redis semantic cache, and a vLLM server. It features a robust **Demo Mode** (`RAG_DEMO_MODE=True` by default) which allows the entire pipeline to function offline with simulated banking policies, local dictionary-based caching, and simulated model completions without needing connection to a real database or LLM container.
 
 ```
 +--------------------------------------------------------------+
@@ -30,51 +30,56 @@ The system runs on FastAPI and supports hybrid RAG queries using a PostgreSQL lo
 
 Follow these steps to package and move the chatbot:
 
-### Step 1: Build for the Target Architecture (Online macOS)
-Run the build command on macOS. Specify the CPU architecture of your target Linux machine (typically `linux/amd64` for standard servers, or `linux/arm64` for ARM devices) to prevent architecture mismatch crashes:
+### Step 1: Build & Pull Images for Target Architecture (Online macOS)
+1. Build the chatbot app image for your target Linux machine architecture (typically `linux/amd64` for standard servers):
+   ```bash
+   docker build --platform linux/amd64 -t rag-chatbot:v1 .
+   ```
+2. Pull the dependent service container images on your online machine:
+   ```bash
+   docker pull postgres:15-alpine
+   docker pull redis:7-alpine
+   docker pull qdrant/qdrant:latest
+   ```
+
+### Step 2: Export All Images to a Compressed Archive (Online macOS)
+Bundle all required container images into a single compressed archive file:
 
 ```bash
-docker build --platform linux/amd64 -t rag-chatbot:v1 .
+docker save rag-chatbot:v1 postgres:15-alpine redis:7-alpine qdrant/qdrant:latest | gzip > rag-chatbot-full.tar.gz
 ```
 
-### Step 2: Export the Image to a Compressed File (Online macOS)
-Use `docker save` to bundle the layers into an archive, then compress it with `gzip` to reduce file transfer time:
+### Step 3: Transfer the Archive to the Offline Linux Machine
+1. Copy `rag-chatbot-full.tar.gz` and `docker-compose.yml` to a USB drive or transfer them via local network.
+2. Move both files into your designated directory on the offline Linux server (e.g., `/opt/rag-chatbot`).
+
+### Step 4: Load the Images (Offline Linux)
+Unpack the images directly into the local Docker engine:
 
 ```bash
-docker save rag-chatbot:v1 | gzip > rag-chatbot.tar.gz
+docker load < rag-chatbot-full.tar.gz
 ```
-
-### Step 3: Transfer the Archive to the Linux Device
-1. Copy `rag-chatbot.tar.gz` and the `docker-compose.yml` file to a USB drive or transfer them over a local network.
-2. Plug the media into the target Linux machine and copy both files into your designated working directory (e.g., `/opt/rag-chatbot`).
-
-### Step 4: Load the Image (Offline Linux)
-On the offline Linux server, run `docker load` to unpack the image layers into the local Docker engine:
-
-```bash
-docker load < rag-chatbot.tar.gz
-```
-Verify the image successfully unpacked by listing your local images:
+Verify all 4 images unpacked successfully:
 ```bash
 docker images
 ```
 
 ### Step 5: Start the Container Stack (Offline Linux)
-We recommend running the container stack using **Docker Compose** to handle dependency initialization (database, cache, app) automatically.
+Run the full container stack using **Docker Compose**:
 
 #### Option A: Running with Docker Compose (Recommended)
-1. Ensure the `docker-compose.yml` file is in the same directory.
-2. Spin up PostgreSQL, Redis, and the chatbot server:
+1. Ensure `docker-compose.yml` is in the same directory.
+2. Spin up PostgreSQL, Redis, Qdrant, and the chatbot server:
    ```bash
    docker compose up -d
    ```
-3. Open your browser on the local network at:
+3. Access the web client UI on the local network at:
    ```
    http://<LINUX_HOST_IP>:8010
    ```
 
 #### Option B: Running via Docker CLI
-If you prefer not to use Docker Compose, start the application container standalone in Demo Mode:
+If running standalone in Demo Mode without external containers:
 ```bash
 docker run -d \
   -p 8010:8010 \

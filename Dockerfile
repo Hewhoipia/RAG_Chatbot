@@ -32,6 +32,7 @@ COPY templates/ ./templates/
 COPY utils/ ./utils/
 COPY retrieval/ ./retrieval/
 COPY mini_func/ ./mini_func/
+COPY script/ ./script/
 COPY config.py .
 COPY connect_db_vllm.py .
 COPY mybot_prod_vllm_client.py .

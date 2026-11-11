@@ -1,4 +1,4 @@
-version: '3.8'
+version: '2.0'
 
 services:
   # 1. PostgreSQL Database Service
@@ -45,7 +45,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/healthz || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -55,6 +55,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    image: rag-chatbot:v2
     container_name: rag_chatbot_client
     restart: unless-stopped
     ports:
