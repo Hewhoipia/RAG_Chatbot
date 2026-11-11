@@ -1,0 +1,102 @@
+[
+  {
+    "sentence1": "How much is the required guarantee deposit for a K-Study account?",
+    "sentence2": "What is the minimum deposit amount needed to open a K-Study account for studying in Korea?",
+    "score": 5.0
+  },
+  {
+    "sentence1": "What benefits and fee waivers does the My SOL Package offer to customers?",
+    "sentence2": "Can you list the free services and advantages included when registering for the My SOL Package?",
+    "score": 4.8
+  },
+  {
+    "sentence1": "Which form must be submitted to register information for a legal representative?",
+    "sentence2": "Is Deposit 01b the correct form used for adding a guardian or legal representative to an account?",
+    "score": 4.2
+  },
+  {
+    "sentence1": "What are the requirements to maintain the benefits of an S-Payroll account?",
+    "sentence2": "Do I need a minimum monthly salary transfer of 5 million VND to keep my S-Payroll perks?",
+    "score": 3.8
+  },
+  {
+    "sentence1": "What are the four different membership tiers available in the Tops Club loyalty program?",
+    "sentence2": "How does the bank calculate deposit points to evaluate my Tops Club ranking?",
+    "score": 2.5
+  },
+  {
+    "sentence1": "Under what conditions will my demand deposit account be classified as 'Inactive'?",
+    "sentence2": "Can I use an Indirect Investment Account (IIA) to deposit or withdraw cash at the counter?",
+    "score": 1.2
+  },
+  {
+    "sentence1": "What is the maximum daily ATM limit for internal fund transfers within Shinhan Bank?",
+    "sentence2": "Does the bank accept a birth certificate as proof of relationship for a minor under 14 without an ID card?",
+    "score": 0.0
+  },
+  {
+    "sentence1": "How long is a foreigner's temporary resident card (TRC) valid for opening an account?",
+    "sentence2": "What are the monthly maintenance fees for a standard demand deposit account?",
+    "score": 0.2
+  },
+  {
+    "sentence1": "Customers classified under CIF Type 2-Person are individuals.",
+    "sentence2": "Corporate clients and financial institutions are categorized under CIF Type 3 and 6.",
+    "score": 1.5
+  },
+  {
+    "sentence1": "An ATM card will be temporarily locked if the PIN is entered incorrectly 5 times.",
+    "sentence2": "If you input the wrong password on the ATM machine more than the allowed maximum of 5 times, your card gets blocked.",
+    "score": 4.9
+  },
+  {
+    "sentence1": "The Shinhan Visa PWM Platinum credit card has no annual fee for both the primary and supplementary cards.",
+    "sentence2": "Primary and supplementary cardholders of the Shinhan Visa PWM Platinum are completely exempt from paying any annual fees.",
+    "score": 5.0
+  },
+  {
+    "sentence1": "Customers can convert 280,000 accumulated Shinhan points into 1,000 Vietnam Airlines Lotusmiles.",
+    "sentence2": "Shinhan points can be exchanged for airline miles through specific airline partners.",
+    "score": 3.5
+  },
+  {
+    "sentence1": "The foreign exchange transaction fee applied to the Shinhan Visa Signature card is 1.99%.",
+    "sentence2": "The Shinhan Travel Platinum credit card applies a foreign currency transaction fee of 2.9%.",
+    "score": 2.5
+  },
+  {
+    "sentence1": "A replacement fee of 220,000 VND is charged if you need to reissue a lost or damaged credit card.",
+    "sentence2": "Platinum and Signature cardholders do not need to provide financial proof when applying for a South Korean tourist visa.",
+    "score": 0.0
+  },
+  {
+    "sentence1": "You need a minimum balance of 15,000 points to redeem Shinhan points for cash at a 1:1 ratio.",
+    "sentence2": "Shinhan allows customers to convert their reward points into cash, provided they have accumulated at least 15,000 points.",
+    "score": 4.8
+  },
+  {
+    "sentence1": "The Shinhan SOL Travel debit card offers a low foreign currency conversion fee of just 0.99%.",
+    "sentence2": "To earn special reward points on the SOL Travel debit card, your total spending in the previous month must be at least 3 million VND.",
+    "score": 1.2
+  },
+  {
+    "sentence1": "The cash advance fee for personal credit cards is 4% of the withdrawn amount, with a minimum charge of 50,000 VND.",
+    "sentence2": "When withdrawing cash using a personal credit card, a 4% fee is applied, which will be no less than 50,000 VND.",
+    "score": 5.0
+  },
+  {
+    "sentence1": "Primary Visa Signature cardholders are granted 2 free airport lounge visits per quarter by presenting the DragonPass app, passport, and boarding pass.",
+    "sentence2": "You can access VIP airport lounges globally by using the DragonPass smartphone application.",
+    "score": 3.0
+  },
+  {
+    "sentence1": "The Korean Air consumer credit card awards a 300,000 VND cashback when statement spending reaches a minimum of 30,000,000 VND.",
+    "sentence2": "Customers receive 1 SKYPASS mile for every 25,000 VND spent on the Korean Air credit card.",
+    "score": 1.5
+  },
+  {
+    "sentence1": "The late payment fee for credit cards is 4%, capped at a maximum of 999,000 VND.",
+    "sentence2": "The Travel Platinum card gives you triple reward miles for international transactions made on weekends.",
+    "score": 0.0
+  }
+]
